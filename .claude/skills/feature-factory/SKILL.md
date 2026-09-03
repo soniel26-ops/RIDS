@@ -1,6 +1,6 @@
 ---
 name: feature-factory
-description: Linha de montagem de funcionalidades do RIDS. Use quando o usuário descrever uma funcionalidade a construir (ou disser "use a skill feature-factory"). Encadeia 7 agentes (researcher → story-writer → project-manager → backend-engineer → frontend-engineer → test-verifier → validator) com 3 pontos de verificação humanos e redirecionamento automático de falhas ao construtor certo.
+description: 'Linha de montagem de funcionalidades do RIDS. Use quando o usuário descrever uma funcionalidade a construir (ou disser "use a skill feature-factory"). Encadeia 7 agentes (researcher → story-writer → project-manager → backend-engineer → frontend-engineer → test-verifier → validator) com 3 pontos de verificação humanos e redirecionamento automático de falhas ao construtor certo.'
 argument-hint: "[descrição da funcionalidade em uma linha]"
 ---
 
@@ -17,6 +17,7 @@ A funcionalidade pedida é: `$ARGUMENTS` (se vazio, use a descrição que o usu�
 acabou de escrever).
 
 ## Antes de começar
+
 1. Leia `CLAUDE.md`. Se as seções **Comandos** ou **Layout de pastas** ainda
    tiverem placeholders entre colchetes relevantes para esta funcionalidade,
    avise o usuário que os construtores e o verificador não conseguirão rodar
@@ -27,29 +28,31 @@ acabou de escrever).
    o documento na resposta; **você** o grava no arquivo. Esses arquivos são o
    registro da funcionalidade e a forma de retomar em uma sessão nova.
 
-| Etapa | Arquivo |
-|-------|---------|
-| 1 | `01-descobertas.md` |
-| 2 | `02-historia.md` |
-| 3 | `03-briefing.md` |
-| 4 | `04-resumo-backend.md` |
-| 5 | `05-resumo-frontend.md` |
-| 6 | `06-verificacao.md` |
-| 7 | `07-validacao.md` |
+| Etapa | Arquivo                 |
+| ----- | ----------------------- |
+| 1     | `01-descobertas.md`     |
+| 2     | `02-historia.md`        |
+| 3     | `03-briefing.md`        |
+| 4     | `04-resumo-backend.md`  |
+| 5     | `05-resumo-frontend.md` |
+| 6     | `06-verificacao.md`     |
+| 7     | `07-validacao.md`       |
 
 ## A cadeia
 
 ### Etapa 1 — `researcher` mapeia o código
+
 - **Entrada:** a descrição da funcionalidade + instrução para ler `CLAUDE.md`.
-- **Saída:** *Descobertas do pesquisador* → `01-descobertas.md`.
+- **Saída:** _Descobertas do pesquisador_ → `01-descobertas.md`.
 - Se a seção "Lacunas e perguntas" tiver perguntas que só o usuário pode
   responder, apresente-as agora, junto com a história na etapa 2, para poupar
   uma rodada.
 
-### Etapa 2 — `story-writer` escreve a história  ⏸ PONTO DE VERIFICAÇÃO 1
+### Etapa 2 — `story-writer` escreve a história ⏸ PONTO DE VERIFICAÇÃO 1
+
 - **Entrada:** a descrição da funcionalidade + o conteúdo de `01-descobertas.md`
-  + instrução para ler `CLAUDE.md`.
-- **Saída:** *História de usuário* → `02-historia.md`.
+  - instrução para ler `CLAUDE.md`.
+- **Saída:** _História de usuário_ → `02-historia.md`.
 - **PARE.** Mostre ao usuário a história, os critérios de aceitação, os casos
   extremos, o fora de escopo e as perguntas em aberto. Peça: aprovar, editar ou
   responder perguntas. **Não avance sem aprovação explícita.**
@@ -57,10 +60,11 @@ acabou de escrever).
   novo com as respostas e repita o ponto de verificação. Atualize `02-historia.md`
   e marque-o como **APROVADA** no topo quando o usuário aprovar.
 
-### Etapa 3 — `project-manager` escreve o briefing  ⏸ PONTO DE VERIFICAÇÃO 2
+### Etapa 3 — `project-manager` escreve o briefing ⏸ PONTO DE VERIFICAÇÃO 2
+
 - **Entrada:** `02-historia.md` (aprovada) + `01-descobertas.md` + instrução para
   ler `CLAUDE.md`.
-- **Saída:** *Briefing técnico* → `03-briefing.md`.
+- **Saída:** _Briefing técnico_ → `03-briefing.md`.
 - **PARE.** Mostre o briefing completo. Este é o momento de o usuário pegar
   decisões erradas ("guardar IDs em memória", tabela nova desnecessária, tenant
   ignorado) antes que 10 arquivos mudem. **Não avance sem aprovação explícita.**
@@ -68,19 +72,21 @@ acabou de escrever).
   Marque `03-briefing.md` como **APROVADO** quando o usuário aprovar.
 
 ### Etapa 4 — `backend-engineer` constrói o backend
+
 - **Entrada:** `03-briefing.md` (aprovado) + `01-descobertas.md` + instrução para
   ler `CLAUDE.md`. Diga explicitamente quais arquivos da seção "Arquivos" do
   briefing são dele.
-- **Saída:** *Resumo do backend* → `04-resumo-backend.md`. A seção "Contrato da
+- **Saída:** _Resumo do backend_ → `04-resumo-backend.md`. A seção "Contrato da
   API" é obrigatória; se vier vazia ou vaga, peça ao agente que a complete antes
   de seguir.
 - Se o agente reportar bloqueio (dependência necessária, arquivo fora do escopo,
   comando placeholder), leve o bloqueio ao usuário. Não decida por ele.
 
 ### Etapa 5 — `frontend-engineer` constrói a interface
+
 - **Entrada:** `03-briefing.md` + `01-descobertas.md` + `04-resumo-backend.md`
   (o contrato da API) + instrução para ler `CLAUDE.md`.
-- **Saída:** *Resumo do frontend* → `05-resumo-frontend.md`.
+- **Saída:** _Resumo do frontend_ → `05-resumo-frontend.md`.
 - Se a seção "Feedback para o backend" não for "nenhuma", **redirecione**: rode o
   `backend-engineer` com o feedback e o briefing, atualize `04-resumo-backend.md`
   e depois rode o `frontend-engineer` de novo com o contrato corrigido.
@@ -88,9 +94,10 @@ acabou de escrever).
   `05-resumo-frontend.md` e pule a etapa.
 
 ### Etapa 6 — `test-verifier` prova os critérios
+
 - **Entrada:** `02-historia.md` + `03-briefing.md` + `04-resumo-backend.md` +
   `05-resumo-frontend.md` + instrução para ler `CLAUDE.md`.
-- **Saída:** *Relatório de verificação* → `06-verificacao.md`, mais o arquivo de
+- **Saída:** _Relatório de verificação_ → `06-verificacao.md`, mais o arquivo de
   teste de aceitação no repositório.
 - Para cada critério em "Critérios que falharam", **redirecione ao construtor
   indicado** (`backend-engineer` ou `frontend-engineer`) com: o critério, a saída
@@ -100,17 +107,20 @@ acabou de escrever).
 - Critérios "não cobertos" não são falha: vão para o relatório final.
 
 ### Etapa 7 — `validator` procura lacunas
+
 - **Entrada:** `02-historia.md` + `03-briefing.md` + `04-resumo-backend.md` +
   `05-resumo-frontend.md` + `06-verificacao.md` + a lista de arquivos alterados
   (`git status --short` e `git diff --stat`) + instrução para ler `CLAUDE.md`.
-- **Saída:** *Relatório de validação* → `07-validacao.md`.
+- **Saída:** _Relatório de validação_ → `07-validacao.md`.
 - Para cada achado **crítico** ou **importante**, redirecione ao construtor
   indicado, depois rode `test-verifier` (etapa 6) e `validator` (etapa 7) de novo.
   Mesmo limite de 3 rodadas. Achados **secundários** vão para a revisão final
   sem bloquear.
 
-### Etapa 8 — Revisão final  ⏸ PONTO DE VERIFICAÇÃO 3
+### Etapa 8 — Revisão final ⏸ PONTO DE VERIFICAÇÃO 3
+
 Apresente ao usuário, em uma única mensagem:
+
 1. A história (resumida) e quais critérios estão aprovados, não cobertos ou
    ainda falhando.
 2. A lista completa de arquivos alterados e criados.
@@ -124,6 +134,7 @@ aprovar, faça o commit na branch de trabalho (nunca em `main`) e só abra PR se
 ele pedir.
 
 ## Regras do orquestrador
+
 - Nunca pule um ponto de verificação. Nunca considere uma aprovação implícita.
 - Nunca execute duas etapas dentro do mesmo agente para "ganhar tempo". A janela
   de contexto limpa de cada agente é o que detecta erros cedo.

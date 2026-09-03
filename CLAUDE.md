@@ -1,78 +1,120 @@
 # CLAUDE.md
 
-Arquivo de memória do projeto RIDS. Toda sessão do Claude Code começa sem contexto:
-este arquivo é o livro de regras que ela lê primeiro. Mantenha-o entre 100 e 300 linhas.
-Tudo entre colchetes `[...]` é um placeholder que ainda precisa ser preenchido com a
-stack real do projeto. Enquanto um placeholder existir, os agentes devem PERGUNTAR
-em vez de supor.
+Livro de regras do RIDS. Toda sessão do Claude Code começa sem contexto: leia este
+arquivo primeiro. Mantenha-o entre 100 e 300 linhas.
 
 ## O que é o RIDS
-[Descreva em 2 ou 3 linhas o que o sistema faz, quem usa e qual problema resolve.]
+
+Sistema interno que gere várias lojas de dropshipping na Shopify a partir de um
+único painel. Cada loja é um **tenant**: tem o seu token da Admin API, os seus
+produtos, pedidos e fornecedores. Hoje são duas lojas, registradas em
+`prisma/seed.ts` apenas pelo domínio: **sonielsupply.com** e **sonielparis.fr**.
+A conexão de cada loja (OAuth e token) ainda não foi feita.
 
 ## Stack
-- Linguagem/runtime: [Node.js 22 / Python 3.x / ...]
-- Framework web: [Next.js App Router / Express / FastAPI / ...]
-- Banco de dados e ORM: [PostgreSQL + Prisma / ...]
-- Filas e jobs em segundo plano: [BullMQ / ...]
-- E-mail e notificações: [Resend / ...]
-- Testes: [Vitest / Jest / Pytest / Playwright ...]
-- Lint e formatação: [ESLint + Prettier / Ruff ...]
+
+- Linguagem/runtime: TypeScript sobre Node.js 22
+- Framework web: Next.js 16 (App Router) com React 19 e Tailwind 4
+- Banco de dados e ORM: PostgreSQL com Prisma 7 (adaptador `@prisma/adapter-pg`)
+- Filas e jobs: BullMQ sobre Redis (`ioredis`)
+- Integração: `@shopify/shopify-api` v14, Admin API GraphQL, versão `July26`
+- Validação: Zod
+- Testes: Vitest (unitários e de componente, jsdom) e Playwright (aceitação)
+- Lint e formatação: ESLint 9 (config do Next) e Prettier
+
+Atenção: o Next 16 tem mudanças em relação ao que a IA costuma conhecer. Antes de
+escrever código do Next, leia o guia em `node_modules/next/dist/docs/` (ver
+`AGENTS.md`). O Prisma 7 usa `prisma.config.ts` e o gerador `prisma-client` com
+saída em `src/generated/prisma` (ignorado pelo git; rode `npm run db:generate`).
 
 ## Comandos
-- dev: `[npm run dev]`
-- test: `[npm test]`
-- test (aceitação/e2e): `[npm run test:e2e]`
-- typecheck: `[npx tsc --noEmit]`
-- lint: `[npm run lint]`
-- migrate: `[npx prisma migrate dev]`
+
+- dev: `npm run dev`
+- build: `npm run build`
+- test: `npm test` (Vitest, só `src/**/*.test.{ts,tsx}`)
+- test (aceitação): `npm run test:e2e` (Playwright, `tests/e2e/**`, sobe o servidor sozinho)
+- typecheck: `npm run typecheck`
+- lint: `npm run lint` (corrigir: `npm run lint:fix`)
+- format: `npm run format` (verificar: `npm run format:check`)
+- gerar cliente Prisma: `npm run db:generate`
+- migrate: `npm run migrate`
+- seed: `npm run db:seed`
+
+Ordem obrigatória antes de qualquer engenheiro terminar: typecheck, lint, test.
 
 ## Layout de pastas
-Os agentes construtores só podem tocar a metade que lhes pertence.
-- Backend: `[src/server/**, src/services/**, src/jobs/**, prisma/**]`
-- Frontend: `[src/app/**, src/components/**, src/hooks/**]`
-- Compartilhado (tipos, contratos): `[src/shared/**]` — alteração exige aviso no resumo.
-- Testes: `[tests/**, **/*.test.*, **/*.spec.*]`
-- Documentação: `docs/`
+
+Os agentes construtores só podem tocar a metade que lhes pertence. O hook
+`.claude/hooks/enforce-scope.sh` bloqueia edições fora dela.
+
+- **Backend:** `src/server/**` (serviços, jobs, segurança, cliente Shopify),
+  `src/app/api/**` (rotas de API), `prisma/**`
+- **Frontend:** `src/app/**` exceto `src/app/api/**` (páginas e layouts),
+  `src/components/**`, `src/hooks/**`
+- **Compartilhado:** `src/shared/**` (contratos de tipos entre API e UI).
+  Qualquer alteração aqui tem de aparecer na seção "Desvios" do resumo do engenheiro.
+- **Testes:** `**/*.test.ts(x)` ao lado do código (unitários e de componente),
+  `tests/e2e/**` (aceitação, Playwright). O `test-verifier` só toca estes.
+- **Gerado:** `src/generated/**`, nunca editado à mão.
+- **Documentação:** `docs/`, `docs/features/<funcionalidade>/` para os artefatos da fábrica.
 
 ## Regras de arquitetura
-- A lógica de negócios reside nos serviços. As rotas da API devem ser finas:
-  validar entrada, chamar o serviço, devolver a resposta.
-- Toda consulta ao banco filtra pelo tenant/empresa atual. Não existe consulta
-  "global" sem justificativa explícita no briefing.
-- Datas são armazenadas em UTC. A conversão para o fuso do usuário acontece
-  apenas na borda (apresentação ou envio de e-mail), usando o fuso do tenant.
-- Tarefas repetíveis vivem em jobs idempotentes: rodar duas vezes não pode
-  gerar dois efeitos.
-- Erros internos nunca chegam brutos ao cliente. A API devolve mensagens
-  controladas; o detalhe vai para o log.
+
+- Rotas de API são finas: validar entrada com Zod, chamar o serviço, devolver a
+  resposta. A lógica de negócios vive em `src/server/<domínio>/<nome>.service.ts`.
+- Serviços recebem as dependências por parâmetro (ver `createStoreService`) para
+  serem testáveis sem banco.
+- **Toda loja é um tenant.** Nenhuma consulta, job ou chamada à Shopify acontece
+  sem `storeId`. Não existe consulta "todas as lojas" fora do serviço de lojas.
+- **Tokens da Shopify são segredos.** Ficam na coluna `accessTokenEncrypted`,
+  cifrados com `src/server/security/crypto.ts`. Só o cliente Shopify os decifra, em
+  memória. Nunca aparecem em logs, respostas de API, testes ou fixtures.
+- **Webhooks chegam repetidos.** Todo webhook é gravado em `WebhookEvent` pelo
+  `X-Shopify-Webhook-Id` (único) antes de qualquer efeito, e o processamento é
+  idempotente. Assinatura HMAC verificada sempre.
+- **A Shopify limita chamadas por loja.** Operações em massa (sincronizar
+  catálogo, atualizar preços, enviar pedidos) vão para as filas de
+  `src/server/jobs/queue.ts`, com `jobId` determinístico e retry exponencial.
+  Nunca em loop direto numa rota.
+- Datas são guardadas em UTC. A conversão usa `Store.timezone` só na borda
+  (tela ou e-mail).
+- Erros internos não chegam brutos ao cliente. A API devolve `ApiError`
+  (`src/shared/types.ts`) com código e mensagem controlada; o detalhe vai para o log,
+  sem dados sensíveis.
 - Reutilize helpers existentes antes de criar um novo. Se criar, explique por quê.
-- [Suas convenções de nomes de arquivos, pastas e exports.]
+- Componentes de UI tratam sempre quatro estados: carregando, vazio, erro e sucesso
+  (ver `StoreList`). Chamadas à API passam por hooks em `src/hooks/`.
 
 ## Não faça
-- Não adicione tarefas cron no sistema operacional. Use `[BullMQ]`.
-- Não registre payloads brutos de pagamento, tokens, senhas ou dados pessoais em logs.
+
+- Não adicione tarefas cron no sistema operacional. Use BullMQ.
+- Não registre payloads brutos de webhooks, tokens, senhas ou dados de clientes em logs.
 - Não faça commits diretamente no branch `main`.
 - Não adicione dependências sem que o briefing técnico as tenha listado.
 - Não altere arquivos fora do escopo acordado no briefing.
 - Não pule, desabilite ou marque como "skip" um teste para ficar verde.
-- Não invente regras de negócio. Se a regra não está na história ou no
-  briefing aprovado, pare e pergunte.
+- Não invente regras de negócio (prazos, margens, fornecedor por produto). Se não
+  está na história ou no briefing aprovado, pare e pergunte.
+- Não edite `src/generated/**` nem `package-lock.json` à mão.
 - Não faça commit de `.env*`, `*.key`, `*.pem` ou `secrets.json`
-  (o hook em `.claude/hooks/` bloqueia isso, mas a regra vale antes do hook).
+  (o hook `.claude/hooks/block-secrets.sh` bloqueia, mas a regra vale antes dele).
+- Não cole tokens ou credenciais no chat. Eles entram por `.env` ou pelo fluxo de
+  conexão da loja.
 
 ## Fábrica de agentes (feature-factory)
+
 Funcionalidades são construídas pela skill `feature-factory`, que encadeia
 7 agentes em `.claude/agents/`:
 
-| Ordem | Agente | Papel | Acesso |
-|-------|--------|-------|--------|
-| 1 | `researcher` | mapeia o código relevante | somente leitura |
-| 2 | `story-writer` | história de usuário + critérios de aceitação | somente leitura |
-| 3 | `project-manager` | briefing técnico | somente leitura |
-| 4 | `backend-engineer` | implementa o backend | pastas de backend |
-| 5 | `frontend-engineer` | implementa a UI contra o contrato do backend | pastas de frontend |
-| 6 | `test-verifier` | testes de aceitação por critério | somente arquivos de teste |
-| 7 | `validator` | reporta lacunas por gravidade | somente leitura |
+| Ordem | Agente              | Papel                                        | Acesso                    |
+| ----- | ------------------- | -------------------------------------------- | ------------------------- |
+| 1     | `researcher`        | mapeia o código relevante                    | somente leitura           |
+| 2     | `story-writer`      | história de usuário + critérios de aceitação | somente leitura           |
+| 3     | `project-manager`   | briefing técnico                             | somente leitura           |
+| 4     | `backend-engineer`  | implementa o backend                         | pastas de backend         |
+| 5     | `frontend-engineer` | implementa a UI contra o contrato do backend | pastas de frontend        |
+| 6     | `test-verifier`     | testes de aceitação por critério             | somente arquivos de teste |
+| 7     | `validator`         | reporta lacunas por gravidade                | somente leitura           |
 
 Três pontos de verificação humanos: aprovar a história, aprovar o briefing,
 revisar o resultado final antes de qualquer PR.
@@ -82,11 +124,13 @@ arquitetônica errada significa descartar a sessão e recomeçar com a suposiç�
 correta já incorporada. Não remende modelos mentais errados.
 
 ## Hábito de manutenção
+
 Sempre que a IA cometer um erro que o surpreenda, pergunte: uma regra neste
 arquivo teria evitado? Se sim, adicione a regra aqui. Os agentes construtores
-também sugerem regras no fim de cada execução (seção "regras que teriam ajudado").
+sugerem regras no fim de cada execução (seção "regras que teriam ajudado").
 
 ## Documentação mais detalhada
-- `docs/architecture.md` — [a criar]
-- `docs/billing.md` — [a criar]
+
+- `docs/architecture.md` — modelo de dados, fluxo de conexão de loja, webhooks, filas, pendências
 - `.claude/skills/feature-factory/SKILL.md` — a cadeia completa e as transferências
+- `AGENTS.md` — aviso do Next 16 sobre ler a documentação local

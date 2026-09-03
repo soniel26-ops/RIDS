@@ -1,0 +1,53 @@
+// Esquema do banco do RIDS.
+// Regra central: toda tabela de negócio pertence a uma Store (loja = tenant).
+// Consultas sem storeId não existem fora deste arquivo e do serviço de lojas.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Uma loja Shopify gerida pelo RIDS. É o tenant do sistema.
+model Store {
+  id        String  @id @default(cuid())
+  /// Domínio público da loja, ex.: sonielparis.fr
+  domain    String  @unique
+  /// Nome de exibição no painel.
+  name      String
+  /// Domínio *.myshopify.com, preenchido quando a loja é conectada.
+  shopifyDomain String? @unique
+  /// Token de acesso da Admin API, cifrado com AES-256-GCM (ver src/server/security/crypto.ts).
+  /// Nunca é lido fora do cliente Shopify e nunca vai para logs ou respostas de API.
+  accessTokenEncrypted String?
+  /// Fuso horário IANA da loja. Datas são guardadas em UTC e convertidas com este fuso na borda.
+  timezone  String  @default("Europe/Paris")
+  /// Moeda ISO 4217 da loja.
+  currency  String  @default("EUR")
+  isActive  Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  webhookEvents WebhookEvent[]
+}
+
+/// Registro de cada webhook recebido da Shopify. Garante idempotência:
+/// o mesmo webhookId nunca é processado duas vezes.
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  /// Cabeçalho X-Shopify-Webhook-Id. Único por entrega.
+  webhookId   String   @unique
+  /// Cabeçalho X-Shopify-Topic, ex.: orders/create
+  topic       String
+  payload     Json
+  receivedAt  DateTime @default(now())
+  processedAt DateTime?
+  error       String?
+
+  @@index([storeId, topic, receivedAt])
+}
