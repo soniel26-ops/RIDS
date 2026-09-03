@@ -1,0 +1,17 @@
+# Segredos (o hook em .claude/hooks/ também bloqueia estes no commit)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets.json
+
+# Dependências e builds
+node_modules/
+dist/
+build/
+.next/
+coverage/
+
+# Configuração local do Claude Code (por pessoa, não versionar)
+.claude/settings.local.json

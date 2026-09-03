@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Hook pre-commit do git. Ative com:
+#   git config core.hooksPath .claude/hooks
+# Delega a verificação a block-secrets.sh no modo git.
+exec "$(dirname -- "$0")/block-secrets.sh" --git-hook
