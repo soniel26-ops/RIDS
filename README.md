@@ -5,13 +5,14 @@ Lojas atuais: sonielsupply.com e sonielparis.fr.
 
 ## Como rodar
 
-Pré-requisitos: Node.js 22, PostgreSQL e Redis acessíveis.
+Pré-requisitos: Node.js 22 e Docker (para PostgreSQL e Redis locais).
 
 ```bash
-cp .env.example .env        # preencha DATABASE_URL, REDIS_URL, ENCRYPTION_KEY
+docker compose up -d        # PostgreSQL em :5432 e Redis em :6379
+cp .env.example .env        # gere ENCRYPTION_KEY (instrução dentro do arquivo)
 npm install                 # também ativa o hook pre-commit contra segredos
 npm run db:generate
-npm run migrate             # cria as tabelas
+npm run migrate             # aplica prisma/migrations (já contém a migração inicial)
 npm run db:seed             # registra as duas lojas (sem credenciais)
 npm run dev                 # http://localhost:3000
 ```

@@ -37,7 +37,8 @@ saída em `src/generated/prisma` (ignorado pelo git; rode `npm run db:generate`)
 - lint: `npm run lint` (corrigir: `npm run lint:fix`)
 - format: `npm run format` (verificar: `npm run format:check`)
 - gerar cliente Prisma: `npm run db:generate`
-- migrate: `npm run migrate`
+- migrate: `npm run migrate` (migrações em `prisma/migrations`, geradas pelo Prisma, nunca à mão)
+- infra local: `docker compose up -d` (PostgreSQL e Redis, ver `docker-compose.yml`)
 - seed: `npm run db:seed`
 
 Ordem obrigatória antes de qualquer engenheiro terminar: typecheck, lint, test.
