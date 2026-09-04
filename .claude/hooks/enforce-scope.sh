@@ -31,7 +31,7 @@ allowed=1
 case "$SCOPE" in
   backend)
     case "$REL" in
-      src/server/*|src/app/api/*|prisma/*|src/shared/*) allowed=0 ;;
+      src/server/*|src/app/api/*|prisma/*|src/shared/*|src/proxy.ts) allowed=0 ;;
       docs/features/*) allowed=0 ;;
     esac
     ;;
