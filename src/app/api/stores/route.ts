@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { authenticateApiRequest } from "@/server/auth/session-guard";
 import { prisma } from "@/server/db";
 import { createStoreService } from "@/server/stores/store.service";
 import type { ApiError, StoreSummary } from "@/shared/types";
@@ -7,10 +8,12 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/stores → StoreSummary[]
- * Lista as lojas geridas. Nunca inclui tokens.
- * Pendente (docs/architecture.md): autenticação do painel.
+ * Exige sessão (401 UNAUTHENTICATED sem ela). Lista todas as lojas para qualquer cargo (CA-19).
+ * Nunca inclui tokens.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = await authenticateApiRequest(request);
+  if (!auth.ok) return auth.response;
   try {
     const stores: StoreSummary[] = await createStoreService(prisma).listStores();
     return NextResponse.json(stores);
