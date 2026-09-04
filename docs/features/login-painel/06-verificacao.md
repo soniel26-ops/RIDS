@@ -65,6 +65,8 @@ Casos extremos da história cobertos e aprovados: e-mail com maiúsculas/espaço
 
 ## 3. Critérios que falharam
 
+> **Rodada 1 (histórico).** O defeito abaixo foi corrigido pelo `backend-engineer` (Correção 1 em `04-resumo-backend.md`) e o teste passou na rodada 2 — ver a seção **Rodada 2** no fim. Estado final: nenhum critério nem caso extremo falhou.
+
 Nenhum critério numerado (CA-1 a CA-43) falhou. Falhou **um caso extremo da história** (seção 3, "Login sem JavaScript ou com conexão lenta: o formulário deve continuar a permitir o envio"):
 
 **Teste:** `tests/e2e/auth-nojs.spec.ts` · `caso extremo (sem JS): login válido entra e mostra o painel` — falhou nas 4 execuções.
@@ -129,6 +131,8 @@ Nenhum mock interno. Fronteiras externas ao sistema:
 
 ## 6. Comando executado e resultado final
 
+> **Rodada 1 (histórico).** O resultado final vigente é o da seção **Rodada 2**, no fim deste relatório.
+
 Comando do `CLAUDE.md`: `npm run test:e2e` (Playwright, `fullyParallel`, 2 workers em 4 CPUs, `reuseExistingServer` com `next dev --hostname 127.0.0.1 --port 3000` já no ar; banco `prisma dev` em `localhost:51214`, Redis em `6379`).
 
 ```
@@ -158,3 +162,106 @@ Database error. Code: `08P01`. Message: `bind message supplies 3 parameters, but
 1. Defeito a devolver ao `backend-engineer` (§3): `Location` absoluto nos `303` de `respondAuth`; sugestão de regra para o `CLAUDE.md`: "Redirecionamentos de rotas de API usam `Location` relativo; `request.url` no Next reflete o hostname configurado do servidor, não o `Host` do pedido".
 2. Ambiente: navegador do Playwright desatualizado em `/opt/pw-browsers` (build 1194 para um Playwright que espera 1234) e daemon `prisma dev` incompatível com conexões concorrentes — ambos afetam quem correr `npm run test:e2e` nesta máquina.
 3. Sugestão para o `frontend-engineer`/regras: o Next injeta `<div role="alert" id="__next-route-announcer__">` em toda página; testes de aceitação e de componente que usem `getByRole("alert")` precisam de o excluir (helper `alertBox` em `tests/e2e/helpers/auth.ts`).
+
+---
+
+## Rodada 2 — reexecução após as correções do backend
+
+**Data:** 2026-09-04 · **Agente:** `test-verifier` · **Base:** commits `1847005` (Correção 1: `Location` relativo nos 303 de formulário em `respondAuth`) e `40e2f5f` (Correção 2: `src/proxy.ts` mantém redirecionamento absoluto que o adapter do Next relativiza; `next` passa por `toSafeInternalPath`). Nenhum arquivo de teste, `playwright.config.ts`, `.env` ou código de produção foi alterado nesta rodada; nenhum teste foi pulado ou marcado como `skip`.
+
+### R2.1 Confirmação prévia com `curl` (servidor `next dev --hostname 127.0.0.1 --port 3000` já no ar)
+
+```
+$ curl -i -X POST http://127.0.0.1:3000/api/auth/login -H 'Host: painel.exemplo.test' \
+    -H 'Content-Type: application/x-www-form-urlencoded' -d 'email=x@exemplo.test&password=abcdefghij'
+HTTP/1.1 303 See Other
+location: /login?erro=INVALID_CREDENTIALS          (rodada 1: http://localhost:3000/login?erro=...)
+
+$ curl -i http://127.0.0.1:3000/ -H 'Host: painel.exemplo.test'
+HTTP/1.1 307 Temporary Redirect
+location: /login?next=%2F                           (inalterado; já era relativo ao chegar ao cliente)
+```
+
+### R2.2 Comandos executados e resultado real
+
+**Execução 1 — `npm run test:e2e`** (configuração padrão: `fullyParallel`, 2 workers, `reuseExistingServer`):
+
+```
+Running 64 tests using 2 workers
+  ✓  39 tests/e2e/auth-nojs.spec.ts:19:5 › caso extremo (sem JS): login válido entra e mostra o painel (580ms)
+  ✓  40 tests/e2e/auth-nojs.spec.ts:35:5 › caso extremo (sem JS): senha errada volta ao login com a mensagem genérica (550ms)
+  ✓  41 tests/e2e/auth-nojs.spec.ts:50:5 › caso extremo (sem JS): 'Esqueci a senha' envia o link e mostra a frase neutra (1.2s)
+  ✓  42 tests/e2e/auth-nojs.spec.ts:65:5 › caso extremo (sem JS): redefinir pelo link e sair funcionam com formulários nativos (2.2s)
+  ✘  61 tests/e2e/auth-reset.spec.ts:323:5 › caso extremo: redefinir pelo link zera a contagem de tentativas de login (808ms)
+  1 failed
+  63 passed (46.1s)
+```
+
+Única falha:
+
+```
+Error: {"error":{"code":"AUTH_UNAVAILABLE","message":"O serviço está indisponível de momento. Tente mais tarde."}}
+Expected: 200
+Received: 503
+   at helpers/auth.ts:147  (requestResetLink → POST /api/auth/forgot-password)
+   at tests/e2e/auth-reset.spec.ts:335:36
+```
+
+Log do servidor (`dev.log`) no mesmo instante — a instabilidade de ambiente já registrada em §6 da rodada 1, não um defeito do produto:
+
+```
+Database error. Code: `08P01`. Message: `bind message supplies 3 parameters, but prepared statement "" requires 0`
+ POST /api/auth/forgot-password 503 in 49ms (next.js: 2.0ms, proxy.ts: 2ms, application-code: 44ms)
+```
+
+A aplicação respondeu corretamente ao erro do banco (503 com mensagem controlada, sem detalhe técnico). O mesmo teste passou na rodada 1 e na execução 2 abaixo; a expectativa (`200` no pedido de link para e-mail existente) está correta e não foi alterada.
+
+**Execução 2 — `npm run test:e2e -- --workers=1`** (regra combinada para falha intermitente por `08P01`):
+
+```
+Running 64 tests using 1 worker
+  ✓  39 tests/e2e/auth-nojs.spec.ts:19:5 › caso extremo (sem JS): login válido entra e mostra o painel (522ms)
+  ✓  61 tests/e2e/auth-reset.spec.ts:323:5 › caso extremo: redefinir pelo link zera a contagem de tentativas de login (1.8s)
+  64 passed (1.3m)
+```
+
+Contagem de `08P01` em `dev.log` antes e depois desta execução: 1 → 1 (nenhuma nova ocorrência).
+
+**Unitários e de componente — `npm test`** (Vitest):
+
+```
+ Test Files  22 passed (22)
+      Tests  196 passed (196)
+   Duration  7.68s
+```
+
+(192 na rodada 1 → 196: os 4 testes novos são os das Correções 1 e 2 em `src/server/auth/http.test.ts` e `src/proxy.test.ts`, conforme `04-resumo-backend.md`.)
+
+### R2.3 Estado final da seção 2 — critérios aprovados
+
+Todos os critérios numerados listados na tabela da §2 (CA-1 a CA-12, CA-14, CA-16 a CA-29, CA-31 a CA-43) **permanecem aprovados** nas duas execuções da rodada 2, com os mesmos testes.
+
+Passa a constar nos casos extremos aprovados (movido da §3):
+
+| Caso extremo da história                                                                    | Teste (arquivo · nome)                                                    | Resultado rodada 2                         |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------ |
+| "Login sem JavaScript ou com conexão lenta: o formulário deve continuar a permitir o envio" | auth-nojs · `caso extremo (sem JS): login válido entra e mostra o painel` | ✓ 580 ms (2 workers) · ✓ 522 ms (1 worker) |
+
+O teste comprova, com `javaScriptEnabled: false`, que o formulário nativo faz `POST /api/auth/login`, o `303` leva a `/` no mesmo host, o cabeçalho mostra o e-mail e o cargo `Proprietário`, e `GET /api/stores` responde `200` com o cookie da sessão. Os outros três casos sem JS (senha errada, "esqueci a senha", redefinição pelo link + "Sair") continuam verdes.
+
+### R2.4 Estado final da seção 3 — critérios que falharam
+
+**Nenhum.** Nenhum critério numerado (CA-1 a CA-43) nem caso extremo da história falhou por comportamento do produto. A única falha observada na rodada 2 (execução 1, `auth-reset.spec.ts:323`, `503 AUTH_UNAVAILABLE` / `08P01`) é a limitação conhecida do daemon `prisma dev`/PGlite com conexões concorrentes, já documentada na §6 da rodada 1, e desapareceu na reexecução com `--workers=1`. Não há nada a devolver ao `backend-engineer` nem ao `frontend-engineer`.
+
+### R2.5 Estado final da seção 4 — critérios não cobertos de fora
+
+**Inalterada.** A tabela da §4 continua válida: CA-13, CA-15, CA-18/CA-36 (libertação após 15 min), CA-30, CA-34 (janela de 1 hora), fronteira de expiração/fuso, duplicidade de conta, duplo envio da mesma tentativa, CA-11 variante "sessão expira enquanto a lista carrega", auditoria quando o registro falha e CA-14 (CLI interativo) permanecem cobertos apenas pelos unitários referenciados, todos verdes no `npm test` desta rodada. As correções do backend não alteraram nenhum destes pontos.
+
+### R2.6 Mocks
+
+Os mesmos da §5 (transporte de e-mail `captured`, `POST /api/dev/test-user`, leitura SQL de `AuthAuditLog`, atalhos simbólicos do navegador em `/opt/pw-browsers`). Nenhum mock novo.
+
+### R2.7 Observações para o orquestrador/validador
+
+1. A recomendação da rodada 1 mantém-se: em CI, correr os testes de aceitação contra o PostgreSQL do `docker compose` (R-15 do briefing), não contra o daemon `prisma dev`. Com 2 workers, a probabilidade de um `08P01` numa execução de 64 testes continua real (1 em 1 nesta rodada; 0 em 1 na rodada 1 final); com `--workers=1` não ocorreu em nenhuma execução.
+2. As "regras que teriam ajudado" propostas pelo `backend-engineer` no fim da Correção 2 (rotas de API → `Location` relativo; `src/proxy.ts` → `NextResponse.redirect(new URL(caminho, request.url))`; confirmar redirecionamentos com `curl -i` contra o `next dev`) são consistentes com o que se observou de fora nas duas rodadas.
