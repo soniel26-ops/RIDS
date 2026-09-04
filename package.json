@@ -17,7 +17,8 @@
     "db:generate": "prisma generate",
     "migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "prepare": "git config core.hooksPath .claude/hooks || true"
+    "prepare": "git config core.hooksPath .claude/hooks || true",
+    "auth:create-user": "tsx src/server/auth/cli/create-user.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

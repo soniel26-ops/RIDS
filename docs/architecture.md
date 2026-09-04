@@ -22,6 +22,12 @@ Shopify ──webhooks──► /api/webhooks/shopify ──► WebhookEvent ─
 Toda tabela futura (Product, Order, Supplier, SupplierOrder...) tem `storeId`
 obrigatório e índice começando por `storeId`.
 
+> **Exceção — tabelas de acesso ao painel.** `User`, `Session`, `PasswordResetToken` e
+> `AuthAuditLog` não têm `storeId`: descrevem as pessoas que operam o painel, não dados
+> de uma loja, e toda pessoa autenticada vê todas as lojas (história `login-painel`,
+> CA-19). Nenhuma outra tabela pode usar esta exceção sem a mesma justificativa escrita
+> aqui. Só `src/server/auth/**` lê estas tabelas.
+
 ## Lojas registradas
 
 | Domínio          | Nome          | Estado                    |
@@ -56,6 +62,24 @@ Suposição a confirmar: ambas em `Europe/Paris` e `EUR`.
 - `webhook-process`: processamento de webhooks.
 - Retry exponencial, 5 tentativas. `jobId` determinístico sempre.
 
+## Autenticação do painel
+
+Definida em `docs/features/login-painel/` (história e briefing). Resumo:
+
+- E-mail e senha; senha com `scrypt` (`node:crypto`), mínimo 10 caracteres.
+- Sessão em banco (`Session`, token opaco em hash), cookie `rids_session` HttpOnly,
+  SameSite=Lax, 7 dias, várias sessões por pessoa. `src/proxy.ts` faz só a verificação
+  otimista; `requirePageUser` e `authenticateApiRequest` fazem a real.
+- Cargos `OWNER`, `ADMIN`, `MARKETING` guardados desde já; permissões por cargo
+  entram nas funcionalidades seguintes.
+- Limite de 5 tentativas em 15 minutos por e-mail (login, troca de senha e pedidos
+  de link), em Redis; Redis fora do ar → 503 (falha fechada).
+- "Esqueci a senha" por link de e-mail (Resend via API REST, sem SDK), 1 hora, uso
+  único, revoga as outras sessões. Em desenvolvimento, `MAIL_TRANSPORT=captured`.
+- Auditoria em `AuthAuditLog` (login ok, login falhado, troca, redefinição), sem tela.
+- Contas criadas por `npm run auth:create-user -- --email <e-mail> --role OWNER`;
+  a senha é digitada no terminal. Nunca por seed ou variável de ambiente.
+
 ## Segurança
 
 - Segredos em repouso: AES-256-GCM (`src/server/security/crypto.ts`), chave em `ENCRYPTION_KEY`.
@@ -64,8 +88,6 @@ Suposição a confirmar: ambas em `Europe/Paris` e `EUR`.
 
 ## Pendências e decisões em aberto
 
-- **Autenticação do painel.** Hoje `/api/stores` e a página inicial não exigem
-  login. Precisa ser a primeira funcionalidade antes de qualquer deploy.
 - **Fornecedores.** O dono usa hoje: CJ Dropshipping, DSers (AliExpress), Spocket,
   "Splite" e "Change2Brand" (os dois últimos ainda por identificar; pedir links).
   Vários deles já operam como apps Shopify que publicam produtos e cumprem pedidos

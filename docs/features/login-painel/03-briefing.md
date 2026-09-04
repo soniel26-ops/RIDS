@@ -1,6 +1,6 @@
 # Briefing técnico — Login do painel
 
-**Estado:** aguardando aprovação (ponto de verificação 2)
+**Estado:** APROVADO pelo dono em 2026-09-04 (ponto de verificação 2)
 
 **Funcionalidade:** `login-painel` · **História:** `docs/features/login-painel/02-historia.md` (v3, APROVADA, CA-1 a CA-43) · **Descobertas:** `docs/features/login-painel/01-descobertas.md` · **Data:** 2026-09-04
 
@@ -548,4 +548,4 @@ export interface OkResponse {
 
 `ApiError` permanece `{ error: { code: string; message: string } }`; para as rotas de auth, `code` é sempre um `AuthErrorCode`. Contrato de 401: **toda** rota protegida devolve `401` com `code: "UNAUTHENTICATED"` e apaga o cookie; o frontend redireciona para `/login?motivo=sessao_expirada&next=...` **somente** com esse código. Cookie: `rids_session`, `HttpOnly; SameSite=Lax; Path=/; Expires=+7d; Secure` em produção. Páginas protegidas: `requirePageUser({ next })` como primeira instrução; rotas protegidas: `authenticateApiRequest(request)` como primeira instrução.
 
-**Aguardando aprovação do briefing (ponto de verificação 2).**
+**Briefing aprovado. Pronto para a construção (etapas 4 e 5).**
