@@ -5,6 +5,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import type { ZodError } from "zod";
+import { toSafeInternalPath } from "@/shared/safe-path";
 import type { ApiError } from "@/shared/types";
 import { AuthError, isAuthError } from "./auth.errors";
 import { firstIssueMessage } from "./schemas";
@@ -126,10 +127,21 @@ export interface AuthOutcome {
   formRedirect: string;
 }
 
-/** JSON quando o corpo veio em JSON; 303 para uma página quando veio de formulário. */
+/**
+ * JSON quando o corpo veio em JSON; 303 para uma página quando veio de formulário.
+ *
+ * O `Location` é um caminho relativo (RFC 9110 §10.2.2), nunca uma URL absoluta: no
+ * Next 16 `request.url` é montado com o hostname configurado do servidor (ex.
+ * `localhost`), não com o `Host` do pedido, e um 303 absoluto levaria o navegador a
+ * outro host (127.0.0.1 → localhost, ou atrás de um reverse proxy), perdendo o cookie.
+ * `formRedirect` passa por `toSafeInternalPath` como defesa em profundidade.
+ */
 export function respondAuth(request: NextRequest, outcome: AuthOutcome): NextResponse {
   if (!isFormRequest(request)) return outcome.json;
-  const response = NextResponse.redirect(new URL(outcome.formRedirect, request.url), 303);
+  const response = new NextResponse(null, {
+    status: 303,
+    headers: { Location: toSafeInternalPath(outcome.formRedirect) },
+  });
   for (const cookie of outcome.json.cookies.getAll()) {
     response.cookies.set(cookie);
   }

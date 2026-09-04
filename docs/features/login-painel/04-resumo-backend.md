@@ -224,3 +224,33 @@ Tempo dos testes: ~6 s (scrypt a 2^15 custa ~50-100 ms por verificação; `auth.
 4. **"Quando o banco não está disponível na sessão do engenheiro, a migração é gerada com `prisma migrate diff --script` e marcada como não aplicada no resumo"** — foi a instrução do orquestrador; vale como regra permanente.
 5. **"Testes que substituem uma função com `vi.mock` devem criar o spy com `vi.fn(implReal)`; `vi.restoreAllMocks()` apaga implementações definidas depois"** — foi o único erro desta execução (13 testes vermelhos por isso).
 6. **Atualizar a tabela de APIs de teste do Next em `docs/`:** `next/experimental/testing/server` exporta `unstable_doesMiddlewareMatch` (não `unstable_doesProxyMatch`) na 16.3.4.
+
+---
+
+## Correção 1 (redirecionamento relativo)
+
+**Data:** 2026-09-04 · **Origem:** `test-verifier`, `tests/e2e/auth-nojs.spec.ts` › "caso extremo (sem JS): login válido entra e mostra o painel".
+
+**Problema.** `respondAuth` montava o 303 com `NextResponse.redirect(new URL(formRedirect, request.url))`. No Next 16, `request.url` é construído com o hostname/porta configurados do servidor (`attachRequestMeta`), não com o cabeçalho `Host`. Pedido a `127.0.0.1:3000` (ou a qualquer host atrás de reverse proxy, R-5(b)) recebia `Location: http://localhost:3000/...`; o cookie ficava em `127.0.0.1`, o navegador seguia para `localhost` e o proxy mandava de volta ao login.
+
+**Alteração.**
+
+- `src/server/auth/http.ts` — `respondAuth` devolve `new NextResponse(null, { status: 303, headers: { Location: toSafeInternalPath(formRedirect) } })`. O `Location` é um caminho relativo (RFC 9110 §10.2.2) e não depende de `request.url` nem de `Host`. `toSafeInternalPath` (`src/shared/safe-path.ts`, já existente) entra como defesa em profundidade: qualquer `formRedirect` que não seja caminho interno cai em `/`. Todos os `formRedirect` das cinco rotas são constantes internas ou já passavam por `toSafeInternalPath` (login); comportamento observável inalterado além do host.
+- `src/server/auth/http.test.ts` — teste do 303 espera `Location: /conta/senha`; novo teste prova que, com `request.url` em `localhost` e `Host: 127.0.0.1:3000`, o `Location` é exatamente o caminho (sem `localhost` nem `127.0.0.1`); novo teste para o fallback `/` com destinos externos/`//`/`/\`/relativo sem barra, e passagem intacta de `/redefinir-senha?erro=X&token=abc`.
+
+**Contrato da API.** Sem mudança de semântica; a seção 2.0 passa a ler-se: "a rota responde `303 Location: <caminho relativo da página>`" (antes podia sair URL absoluta).
+
+**Verificação.**
+
+```
+$ npm run format      → Prettier OK
+$ npm run typecheck   → tsc --noEmit   OK
+$ npm run lint        → eslint .       OK
+$ npm test            → 22 arquivos, 194 testes, todos passaram
+$ curl -i -X POST http://127.0.0.1:3000/api/auth/login (form, credenciais inválidas)
+    → HTTP/1.1 303 · location: /login?erro=VALIDATION_ERROR
+  idem com Host: painel.exemplo.test → location: /login?erro=VALIDATION_ERROR
+  POST /api/auth/logout (form)       → location: /login
+```
+
+**Observação fora do escopo desta correção (não alterado).** `src/proxy.ts:46` também usa `new URL("/login", request.url)` para o 307 de páginas protegidas. Hoje não quebra o fluxo porque o navegador é reencaminhado para o host do servidor e ali continua; mas atrás de um reverse proxy com outro hostname o mesmo defeito reaparece. Sugere-se a mesma abordagem (Location relativo) numa correção própria.

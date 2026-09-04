@@ -118,8 +118,34 @@ describe("respondAuth", () => {
     );
     const response = respondAuth(formRequest({}), { json, formRedirect: "/conta/senha" });
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("http://localhost:3000/conta/senha");
+    expect(response.headers.get("location")).toBe("/conta/senha");
     expect(response.headers.get("set-cookie")).toMatch(/^rids_session=tok;/);
+  });
+
+  it("o Location é relativo: não herda o hostname de request.url nem o Host do pedido", () => {
+    // request.url diz "localhost" (hostname configurado do servidor) e o navegador
+    // pediu por 127.0.0.1:3000: o 303 tem de ficar no host do pedido, seja ele qual for.
+    const request = formRequest({}, { host: "127.0.0.1:3000" });
+    expect(new URL(request.url).hostname).toBe("localhost");
+    const json = NextResponse.json({ ok: true });
+    const response = respondAuth(request, { json, formRedirect: "/login?erro=X&next=%2F" });
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("/login?erro=X&next=%2F");
+    expect(response.headers.get("location")).not.toContain("localhost");
+    expect(response.headers.get("location")).not.toContain("127.0.0.1");
+  });
+
+  it("um formRedirect que não seja caminho interno cai em / (defesa em profundidade)", () => {
+    const json = NextResponse.json({ ok: true });
+    for (const bad of ["https://evil.example/", "//evil.example", "/\\evil", "login"]) {
+      const response = respondAuth(formRequest({}), { json, formRedirect: bad });
+      expect(response.headers.get("location")).toBe("/");
+    }
+    const ok = respondAuth(formRequest({}), {
+      json,
+      formRedirect: "/redefinir-senha?erro=X&token=abc",
+    });
+    expect(ok.headers.get("location")).toBe("/redefinir-senha?erro=X&token=abc");
   });
 
   it("errorOutcome produz ApiError em JSON e ?erro=<code> no formulário", async () => {
