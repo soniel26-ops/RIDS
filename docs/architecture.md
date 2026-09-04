@@ -66,7 +66,12 @@ Suposição a confirmar: ambas em `Europe/Paris` e `EUR`.
 
 - **Autenticação do painel.** Hoje `/api/stores` e a página inicial não exigem
   login. Precisa ser a primeira funcionalidade antes de qualquer deploy.
-- **Fornecedores.** Quais são (AliExpress, CJ, fornecedor próprio)? Define a
-  segunda integração e o modelo `Supplier`.
+- **Fornecedores.** O dono usa hoje: CJ Dropshipping, DSers (AliExpress), Spocket,
+  "Splite" e "Change2Brand" (os dois últimos ainda por identificar; pedir links).
+  Vários deles já operam como apps Shopify que publicam produtos e cumprem pedidos
+  dentro da própria loja. Hipótese de desenho a confirmar: a Shopify é o hub, o RIDS
+  observa pedidos e cumprimentos por webhook e só integra diretamente a API de um
+  fornecedor (CJ tem API pública) quando precisar de custo, stock ou pedido automático.
+  Define o modelo `Supplier` e o vínculo produto↔fornecedor.
 - **Infraestrutura.** Onde ficam PostgreSQL e Redis (local, Docker, gerenciado)?
 - **Fuso e moeda** da sonielsupply.com a confirmar.
