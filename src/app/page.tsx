@@ -1,12 +1,16 @@
+import { PanelHeader } from "@/components/PanelHeader";
 import { StoreList } from "@/components/StoreList";
+import { requirePageUser } from "@/server/auth/session-guard";
 
-export default function HomePage() {
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  // Primeira instrução: sem sessão válida nada de loja é renderizado (CA-1, CA-11).
+  const user = await requirePageUser({ next: "/" });
+
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 p-8">
-      <header>
-        <h1 className="text-2xl font-semibold">RIDS</h1>
-        <p className="text-zinc-500">Gestão das lojas Shopify</p>
-      </header>
+      <PanelHeader user={user} />
       <section aria-labelledby="stores-heading">
         <h2 id="stores-heading" className="mb-3 text-lg font-medium">
           Lojas

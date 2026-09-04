@@ -40,6 +40,13 @@ function mockFetch(response: { ok: boolean; status?: number; body: unknown }) {
 
 afterEach(() => vi.unstubAllGlobals());
 
+/** window.location substituível (acessor configurável no ambiente jsdom do Vitest). */
+function stubLocation(pathname: string) {
+  const location = { pathname, search: "", assign: vi.fn(), replace: vi.fn() };
+  vi.stubGlobal("location", location);
+  return location;
+}
+
 describe("StoreList", () => {
   it("mostra o estado de carregamento", () => {
     mockFetch({ ok: true, body: stores });
@@ -72,5 +79,22 @@ describe("StoreList", () => {
     mockFetch({ ok: true, body: [] });
     render(<StoreList />);
     await waitFor(() => expect(screen.getByText(/nenhuma loja/i)).toBeInTheDocument());
+  });
+
+  it("CA-11: 401 UNAUTHENTICATED redireciona para o login sem mostrar erro", async () => {
+    const location = stubLocation("/");
+    mockFetch({
+      ok: false,
+      status: 401,
+      body: { error: { code: "UNAUTHENTICATED", message: "Sessão necessária." } },
+    });
+    render(<StoreList />);
+
+    await waitFor(() =>
+      expect(location.assign).toHaveBeenCalledWith("/login?motivo=sessao_expirada&next=%2F"),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/carregando/i);
+    expect(screen.queryByText("Sessão necessária.")).not.toBeInTheDocument();
   });
 });

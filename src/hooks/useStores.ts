@@ -1,35 +1,32 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ApiError, StoreSummary } from "@/shared/types";
+import { apiFetch } from "@/hooks/apiClient";
+import type { StoreSummary } from "@/shared/types";
 
 export type StoresState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; stores: StoreSummary[] };
 
-/** Carrega as lojas de GET /api/stores. Contrato em src/shared/types.ts. */
+/**
+ * Carrega as lojas de GET /api/stores. Contrato em src/shared/types.ts.
+ * Sessão inválida (401 UNAUTHENTICATED) → o apiFetch leva ao login e o estado fica
+ * em "loading" (CA-11); os demais erros mostram a mensagem da API.
+ */
 export function useStores(): StoresState {
   const [state, setState] = useState<StoresState>({ status: "loading" });
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/stores", { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as ApiError | null;
-          throw new Error(body?.error.message ?? "Não foi possível carregar as lojas.");
-        }
-        return (await response.json()) as StoreSummary[];
-      })
-      .then((stores) => setState({ status: "ready", stores }))
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        setState({
-          status: "error",
-          message: error instanceof Error ? error.message : "Erro inesperado.",
-        });
-      });
+    apiFetch<StoreSummary[]>("/api/stores", { signal: controller.signal }).then((result) => {
+      if (controller.signal.aborted) return;
+      if (result.ok) {
+        setState({ status: "ready", stores: result.data });
+      } else {
+        setState({ status: "error", message: result.error.message });
+      }
+    });
     return () => controller.abort();
   }, []);
 
