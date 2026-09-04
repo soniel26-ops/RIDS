@@ -254,3 +254,46 @@ $ curl -i -X POST http://127.0.0.1:3000/api/auth/login (form, credenciais invál
 ```
 
 **Observação fora do escopo desta correção (não alterado).** `src/proxy.ts:46` também usa `new URL("/login", request.url)` para o 307 de páginas protegidas. Hoje não quebra o fluxo porque o navegador é reencaminhado para o host do servidor e ali continua; mas atrás de um reverse proxy com outro hostname o mesmo defeito reaparece. Sugere-se a mesma abordagem (Location relativo) numa correção própria.
+
+---
+
+## Correção 2 (redirecionamento relativo no proxy)
+
+**Data:** 2026-09-04 · **Origem:** observação registrada no fim da Correção 1 (`src/proxy.ts:46`), suspeita do mesmo defeito de `respondAuth`.
+
+**Pedido.** Trocar o 307 de `NextResponse.redirect(new URL("/login", request.url))` por `Location` relativo (`/login?next=…`), como feito em `respondAuth`.
+
+**O que se verificou (e por que o pedido não foi feito à letra).**
+
+1. A versão com `new NextResponse(null, { status: 307, headers: { Location: "/login?next=%2F" } })` passou no Vitest, mas no `next dev` real devolveu **500**: o adapter do proxy (`next/dist/server/web/adapter.js`) faz `new NextURL(location)` sem base sobre todo `Location` de resposta do proxy, e um caminho relativo cru lança `TypeError: Invalid URL` (log: `ERR_INVALID_URL, input: '/login?next=%2F'`). Rotas de API (`respondAuth`) não passam por esse adapter, por isso lá o relativo funciona.
+2. O código original **já produz `Location` relativo no servidor real**: o mesmo adapter, quando `redirectURL.host === requestURL.host` (ambos derivam de `request.url`, logo sempre coincidem), reescreve o `Location` com `getRelativeURL` para `/login?next=…`. Verificado com o código original em pé:
+   ```
+   $ curl -i http://127.0.0.1:3000/ -H 'Host: painel.exemplo.test'
+     HTTP/1.1 307 · location: /login?next=%2F
+   $ curl -i 'http://127.0.0.1:3000/conta/senha?x=1' -H 'Host: painel.exemplo.test:8443' -H 'X-Forwarded-Host: painel.exemplo.test' -H 'X-Forwarded-Proto: https'
+     HTTP/1.1 307 · location: /login?next=%2Fconta%2Fsenha%3Fx%3D1
+   ```
+   Ou seja, a hipótese da Correção 1 ("atrás de reverse proxy o defeito reaparece no proxy") era falsa; o defeito existia só em rotas de API.
+3. Usar o cabeçalho `Host` para montar a URL seria pior: quebraria a coincidência de host e o Next deixaria o `Location` absoluto para outro host.
+4. Tentou-se provar o cabeçalho final num teste unitário chamando o adapter do Next; não é viável (exige os globais de AsyncLocalStorage do runtime). A prova fica com o servidor real e o e2e (`auth-login.spec.ts` já espera `/login?next=%2F`).
+
+**Alteração efetiva (mínima).**
+
+- `src/proxy.ts` — mantém `NextResponse.redirect(new URL("/login", request.url))` (única forma que o adapter aceita e a que ele relativiza), agora com comentário explicando a restrição e o porquê de não usar `Host` nem `Location` relativo. `next` passa por `toSafeInternalPath` (`src/shared/safe-path.ts`): pathname como `//evil.test/x` vira `next=%2F` em vez de propagar um candidato a redirecionamento aberto (a página de login já filtrava; agora é defesa em profundidade). Codificação de `next` inalterada (`/`→`%2F`, `?`→`%3F`, `=`→`%3D`). O proxy continua a importar só `next/server` e `src/shared/**`.
+- `src/proxy.test.ts` — novo teste: com `request.url` em `http://localhost:3000` (Host `127.0.0.1:3000`) e em `https://interno.servidor.local` (Host `painel.exemplo.test`), o `Location` é absoluto com a **origem de `request.url`** (a condição que faz o Next relativizar), `pathname+search` exatamente `/login?next=%2Fconta%2Fsenha%3Fx%3D1`, e o host **não** é o do cabeçalho `Host`. Novo teste para `//evil.test/x` → `next=%2F`. Teste existente do 307 mantido.
+
+**Contrato da API.** Seção 2.9 inalterada: página protegida sem cookie → `307 /login?next=<encodeURIComponent(pathname + search)>`; o `Location` que chega ao navegador é relativo (reescrito pelo Next), independente de `Host`/reverse proxy.
+
+**Verificação.**
+
+```
+$ npm run format      → Prettier OK
+$ npm run typecheck   → tsc --noEmit   OK
+$ npm run lint        → eslint .       OK
+$ npm test            → 22 arquivos, 196 testes, todos passaram
+$ curl -i http://127.0.0.1:3000/ -H 'Host: painel.exemplo.test'     → 307 · location: /login?next=%2F
+$ curl -i 'http://127.0.0.1:3000//evil.test/x'                       → 308 · location: /evil.test/x
+  (o Next normaliza "//" antes do proxy; o toSafeInternalPath no proxy é só defesa em profundidade, coberto pelo teste unitário)
+```
+
+**Regra que teria ajudado.** "`src/proxy.ts` redireciona sempre com `NextResponse.redirect(new URL(caminho, request.url))`; nunca com `Location` relativo (o adapter do Next lança `Invalid URL`) nem com o cabeçalho `Host`. O Next relativiza o `Location` sozinho. Em rotas de API é o contrário: `Location` relativo." E: "Toda correção a um redirecionamento é confirmada com `curl -i` contra o `next dev` antes de fechar; o Vitest não passa pelo adapter do Next."

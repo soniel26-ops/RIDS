@@ -63,7 +63,33 @@ describe("proxy (CA-1, CA-10, CA-17)", () => {
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(`${BASE}/login?next=%2F`);
     const deep = proxy(request("/conta/senha?x=1"));
+    expect(deep.status).toBe(307);
     expect(deep.headers.get("location")).toBe(`${BASE}/login?next=%2Fconta%2Fsenha%3Fx%3D1`);
+  });
+
+  it("o Location tem a origem de request.url (não do Host), condição para o Next o relativizar", () => {
+    // O adapter do Next exige URL absoluta no Location (relativo cru → "Invalid URL", 500) e
+    // reescreve para relativo quando o host coincide com o de request.url. Se o proxy usasse o
+    // cabeçalho Host, a coincidência quebraria e o navegador iria para outro host, perdendo o cookie.
+    const cases: Array<[url: string, host: string]> = [
+      ["http://localhost:3000/conta/senha?x=1", "127.0.0.1:3000"],
+      ["https://interno.servidor.local/conta/senha?x=1", "painel.exemplo.test"],
+    ];
+    for (const [url, host] of cases) {
+      const response = proxy(new NextRequest(url, { headers: { host } }));
+      expect(response.status).toBe(307);
+      const location = new URL(response.headers.get("location") ?? "");
+      expect(location.origin).toBe(new URL(url).origin);
+      expect(`${location.pathname}${location.search}`).toBe("/login?next=%2Fconta%2Fsenha%3Fx%3D1");
+      expect(location.host).not.toBe(host);
+    }
+  });
+
+  it("caminho que não é interno seguro cai em next=%2F", () => {
+    // "//evil.test/x" é um pathname válido e viraria candidato a redirecionamento aberto no ?next=.
+    const response = proxy(new NextRequest(`${BASE}//evil.test/x`));
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(`${BASE}/login?next=%2F`);
   });
 
   it("sem cookie, /api/* → 401 UNAUTHENTICATED em JSON, sem dados", async () => {

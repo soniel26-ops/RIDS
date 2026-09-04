@@ -5,6 +5,7 @@
  * Caminho protegido sem cookie: /api/* → 401 JSON; páginas → 307 /login?next=<caminho>.
  */
 import { NextResponse, type NextRequest } from "next/server";
+import { toSafeInternalPath } from "@/shared/safe-path";
 import { AUTH_ERROR_MESSAGES, type ApiError } from "@/shared/types";
 
 /** Nome do cookie de sessão. Duplicado de src/server/auth/http.ts de propósito: o proxy não importa módulos do servidor. */
@@ -43,8 +44,14 @@ export function proxy(request: NextRequest) {
     return NextResponse.json(body, { status: 401 });
   }
 
+  // O Location TEM de ser uma URL absoluta com a mesma origem de request.url: o adapter do Next
+  // (server/web/adapter.js) faz `new NextURL(location)` sem base — um caminho relativo cru lança
+  // "Invalid URL" e vira 500 — e, quando o host coincide com o de request.url, ele próprio reescreve
+  // o Location para relativo (`/login?next=...`). Assim o navegador nunca é enviado para outro host,
+  // mesmo atrás de reverse proxy ou com 127.0.0.1 vs localhost. Não usar o cabeçalho Host aqui:
+  // quebraria essa coincidência e o redirecionamento sairia absoluto para outro host.
   const loginUrl = new URL("/login", request.url);
-  loginUrl.searchParams.set("next", `${pathname}${search}`);
+  loginUrl.searchParams.set("next", toSafeInternalPath(`${pathname}${search}`));
   return NextResponse.redirect(loginUrl);
 }
 
