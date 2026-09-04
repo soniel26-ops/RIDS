@@ -48,7 +48,7 @@ Ordem obrigatória antes de qualquer engenheiro terminar: typecheck, lint, test.
 Os agentes construtores só podem tocar a metade que lhes pertence. O hook
 `.claude/hooks/enforce-scope.sh` bloqueia edições fora dela.
 
-- **Backend:** `src/server/**` (serviços, jobs, segurança, cliente Shopify),
+- **Backend:** `src/server/**` (serviços, jobs, segurança, cliente Shopify), `src/proxy.ts`,
   `src/app/api/**` (rotas de API), `prisma/**`
 - **Frontend:** `src/app/**` exceto `src/app/api/**` (páginas e layouts),
   `src/components/**`, `src/hooks/**`

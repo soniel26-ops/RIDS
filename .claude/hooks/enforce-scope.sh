@@ -59,7 +59,7 @@ if [ "$allowed" -ne 0 ]; then
   {
     echo "EDIÇÃO BLOQUEADA: '$REL' está fora do escopo '$SCOPE'."
     echo "Escopos (CLAUDE.md, Layout de pastas):"
-    echo "  backend  → src/server/**, src/app/api/**, prisma/**, src/shared/**"
+    echo "  backend  → src/server/**, src/app/api/**, prisma/**, src/shared/**, src/proxy.ts"
     echo "  frontend → src/app/** (exceto api), src/components/**, src/hooks/**, src/shared/**"
     echo "  tests    → tests/**, **/*.test.*, **/*.spec.*"
     echo "Se a funcionalidade exige esta alteração, reporte no seu resumo em vez de fazê-la."
