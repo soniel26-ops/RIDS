@@ -171,3 +171,35 @@ Nenhum teste do backend foi alterado ou quebrou. Não executado: `npm run test:e
 5. **"Títulos de página não repetem exatamente o texto de um botão ou link da mesma tela"** — o `test-verifier` usa `getByText`/`getByRole` e textos duplicados obrigam a consultas ambíguas.
 6. **"Dublês de teste que não são `*.test.*` ficam em `src/<camada>/testing/`"** (o backend usou `src/server/auth/testing/fakes.ts`; espelhei em `src/components/testing/`). Uma convenção escrita evita a dúvida.
 7. **"Toda página nova lê `await props.searchParams` e passa props a componentes cliente; formulários não usam `useSearchParams`/`useRouter`"** — está no briefing desta funcionalidade e merece virar regra geral, porque é o que torna os componentes testáveis em jsdom.
+
+---
+
+## Correção 1 (constantes partilhadas)
+
+**Data:** 2026-09-05 · **Origem:** `07-validacao.md`, achado S-1, após a Correção 3 do backend ter criado `src/shared/auth-rules.ts`.
+
+### Arquivos editados
+
+- `src/components/auth/authQuery.ts` — apagados o array local `AUTH_ERROR_CODES` (10 códigos escritos à mão) e a constante `RESET_TOKEN_PATTERN`; `parseAuthErrorCode` e `parseResetToken` passam a usar `AUTH_ERROR_CODES` e `RESET_TOKEN_PATTERN` importados de `@/shared/auth-rules`. A lista partilhada deriva de `Object.keys(AUTH_ERROR_MESSAGES)` + `"VALIDATION_ERROR"`, logo um código novo em `src/shared/types.ts` passa a ser reconhecido em `?erro=` sem edição aqui. `RESET_TOKEN_PATTERN` deixa de ser exportado por este módulo (nenhum importador externo).
+- `src/components/auth/passwordRules.ts` — apagados `PASSWORD_MIN_LENGTH = 10` e `PASSWORD_TOO_SHORT_MESSAGE`; ambos vêm de `@/shared/auth-rules`. `PASSWORD_MIN_LENGTH` continua re-exportado daqui porque `ChangePasswordForm.tsx` e `ResetPasswordForm.tsx` o importam de `./passwordRules` para `minLength` dos campos. `PASSWORDS_MISMATCH_MESSAGE` e `validateNewPassword` ficam onde estavam (só a UI os usa).
+
+### Comportamento
+
+Nenhuma alteração de comportamento nem de texto: valores idênticos aos anteriores (`/^[A-Za-z0-9_-]{43}$/`, `10`, `A senha deve ter pelo menos 10 caracteres.`). Os formulários, páginas e testes de componente não precisaram de alteração (os testes verificam o texto literal, não a constante). Nenhum arquivo em `src/shared/**`, `src/server/**` ou `src/app/api/**` foi tocado.
+
+### Feedback para o backend
+
+Nenhum. O módulo `src/shared/auth-rules.ts` só importa `./types` e funciona em componentes cliente e em Server Components.
+
+### Resultado
+
+```
+$ npm run format      → Prettier: só os dois arquivos acima reescritos
+$ npm run typecheck   → tsc --noEmit                 OK
+$ npm run lint        → eslint .                     OK
+$ npm test            → vitest run
+  Test Files  23 passed (23)
+  Tests       207 passed (207)
+```
+
+Sem commit nem push.

@@ -1,6 +1,7 @@
-/** Regras locais da nova senha (CA-20, CA-27): mesmas mensagens do servidor. */
-export const PASSWORD_MIN_LENGTH = 10;
-export const PASSWORD_TOO_SHORT_MESSAGE = "A senha deve ter pelo menos 10 caracteres.";
+/** Validação local da nova senha (CA-20, CA-27): limite e texto vêm de `src/shared/auth-rules.ts`. */
+import { PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT_MESSAGE } from "@/shared/auth-rules";
+
+export { PASSWORD_MIN_LENGTH };
 export const PASSWORDS_MISMATCH_MESSAGE = "As senhas não coincidem.";
 
 export interface NewPasswordErrors {

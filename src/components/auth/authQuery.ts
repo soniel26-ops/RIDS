@@ -2,6 +2,7 @@
  * Leitura dos parâmetros de query das páginas de autenticação (Server Components) e
  * mensagens fixas do caminho sem JavaScript (?erro=). Sem dependências do servidor.
  */
+import { AUTH_ERROR_CODES, RESET_TOKEN_PATTERN } from "@/shared/auth-rules";
 import { AUTH_ERROR_MESSAGES, type AuthErrorCode, type LoginNotice } from "@/shared/types";
 
 export type SearchParamValue = string | string[] | undefined;
@@ -11,19 +12,6 @@ export type SearchParams = Record<string, SearchParamValue>;
 export function firstParam(value: SearchParamValue): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
-
-const AUTH_ERROR_CODES: readonly AuthErrorCode[] = [
-  "VALIDATION_ERROR",
-  "INVALID_CREDENTIALS",
-  "TOO_MANY_ATTEMPTS",
-  "UNAUTHENTICATED",
-  "INVALID_CURRENT_PASSWORD",
-  "INVALID_RESET_TOKEN",
-  "MAIL_UNAVAILABLE",
-  "AUTH_UNAVAILABLE",
-  "FORBIDDEN_ORIGIN",
-  "NOT_FOUND",
-];
 
 export function parseAuthErrorCode(value: SearchParamValue): AuthErrorCode | null {
   const code = firstParam(value);
@@ -43,9 +31,7 @@ export function parseFlag(value: SearchParamValue): boolean {
   return flag !== undefined && flag !== "" && flag !== "0";
 }
 
-/** Formato do token do link de redefinição (base64url, 43 caracteres), como no backend. */
-export const RESET_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-
+/** Token do link de redefinição no formato partilhado com o backend (`RESET_TOKEN_PATTERN`). */
 export function parseResetToken(value: SearchParamValue): string | null {
   const token = firstParam(value);
   return token && RESET_TOKEN_PATTERN.test(token) ? token : null;
