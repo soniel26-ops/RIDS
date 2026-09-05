@@ -1,0 +1,140 @@
+// Esquema do banco do RIDS.
+// Regra central: toda tabela de negócio pertence a uma Store (loja = tenant).
+// Consultas sem storeId não existem fora deste arquivo e do serviço de lojas.
+//
+// Exceção documentada (docs/architecture.md): as tabelas de acesso ao painel
+// (User, Session, PasswordResetToken, AuthAuditLog) não têm storeId. Descrevem as
+// pessoas que operam o painel, não dados de uma loja; toda pessoa autenticada vê
+// todas as lojas (história login-painel, CA-19). Só src/server/auth/** lê estas tabelas.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Uma loja Shopify gerida pelo RIDS. É o tenant do sistema.
+model Store {
+  id        String  @id @default(cuid())
+  /// Domínio público da loja, ex.: sonielparis.fr
+  domain    String  @unique
+  /// Nome de exibição no painel.
+  name      String
+  /// Domínio *.myshopify.com, preenchido quando a loja é conectada.
+  shopifyDomain String? @unique
+  /// Token de acesso da Admin API, cifrado com AES-256-GCM (ver src/server/security/crypto.ts).
+  /// Nunca é lido fora do cliente Shopify e nunca vai para logs ou respostas de API.
+  accessTokenEncrypted String?
+  /// Fuso horário IANA da loja. Datas são guardadas em UTC e convertidas com este fuso na borda.
+  timezone  String  @default("Europe/Paris")
+  /// Moeda ISO 4217 da loja.
+  currency  String  @default("EUR")
+  isActive  Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  webhookEvents WebhookEvent[]
+}
+
+/// Registro de cada webhook recebido da Shopify. Garante idempotência:
+/// o mesmo webhookId nunca é processado duas vezes.
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  /// Cabeçalho X-Shopify-Webhook-Id. Único por entrega.
+  webhookId   String   @unique
+  /// Cabeçalho X-Shopify-Topic, ex.: orders/create
+  topic       String
+  payload     Json
+  receivedAt  DateTime @default(now())
+  processedAt DateTime?
+  error       String?
+
+  @@index([storeId, topic, receivedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Acesso ao painel (funcionalidade login-painel). Sem storeId: ver exceção no topo.
+// ---------------------------------------------------------------------------
+
+/// Cargo da pessoa no painel. Rótulos na UI: Proprietário, Admin, Marketing.
+enum UserRole {
+  OWNER
+  ADMIN
+  MARKETING
+}
+
+/// Eventos de auditoria de acesso (CA-39 a CA-42).
+enum AuthAuditEvent {
+  LOGIN_SUCCEEDED
+  LOGIN_FAILED
+  PASSWORD_CHANGED
+  PASSWORD_RESET
+}
+
+/// Pessoa que entra no painel. Criada só pelo script `npm run auth:create-user`.
+model User {
+  id           String   @id @default(cuid())
+  /// Gravado sempre normalizado (trim + minúsculas). Garante uma conta por e-mail.
+  email        String   @unique
+  /// Formato `scrypt$N$r$p$<salt b64>$<hash b64>`. Nunca sai de src/server/auth.
+  passwordHash String
+  /// Sem default: o cargo é sempre explícito (CA-31).
+  role         UserRole
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions            Session[]
+  passwordResetTokens PasswordResetToken[]
+}
+
+/// Uma sessão por dispositivo/login (CA-16). Sair, expirar e revogar apagam a linha.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// SHA-256 (hex) do token opaco do cookie. O token em claro nunca é gravado.
+  tokenHash String   @unique
+  /// createdAt + 7 dias, absoluto, sem renovação deslizante (CA-15).
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+/// Link de "esqueci a senha": 1 hora, uso único, só o último vale (CA-34, CA-35).
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// SHA-256 (hex) do token do link. O token em claro só existe no e-mail.
+  tokenHash String    @unique
+  /// createdAt + 1 hora.
+  expiresAt DateTime
+  /// Preenchido de forma condicional ao usar ("o primeiro ganha").
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// Registro de auditoria de acesso, sem tela (CA-39 a CA-43).
+/// Nunca contém senha, token, cookie, IP ou user-agent.
+model AuthAuditLog {
+  id        String         @id @default(cuid())
+  event     AuthAuditEvent
+  /// E-mail normalizado, mesmo sem conta correspondente (CA-40).
+  email     String
+  /// Sem FK: o registro sobrevive à remoção da conta. null para e-mail desconhecido.
+  userId    String?
+  /// Só em LOGIN_FAILED: INVALID_CREDENTIALS ou RATE_LIMITED.
+  reason    String?
+  createdAt DateTime       @default(now())
+
+  @@index([email, createdAt])
+  @@index([createdAt])
+}
