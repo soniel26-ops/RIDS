@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { EmailAlreadyInUseError } from "./auth.errors";
 import { createAuditLog } from "./audit";
+import { createCapturedTransport } from "./mail/captured-transport";
 import {
   createAuthService,
   FORGOT_MIN_RESPONSE_MS,
@@ -15,6 +16,7 @@ import {
   createFakeMailTransport,
   createMemoryRateLimitStore,
 } from "./testing/fakes";
+import type { MailTransport } from "./mail/transport";
 import { hashToken } from "./tokens";
 
 const hoisted = vi.hoisted(() => ({
@@ -46,7 +48,7 @@ beforeAll(async () => {
   passwordHash = await hashPassword(PASSWORD);
 });
 
-function setup(options: { users?: Partial<AuthUserRow>[] } = {}) {
+function setup(options: { users?: Partial<AuthUserRow>[]; mail?: MailTransport } = {}) {
   let current = START;
   const now = () => new Date(current);
   const advance = (ms: number) => {
@@ -63,16 +65,19 @@ function setup(options: { users?: Partial<AuthUserRow>[] } = {}) {
   const rateLimiter = createRateLimiter(store);
   const mail = createFakeMailTransport();
   const sleep = vi.fn(async () => {});
+  // vi.fn(impl): continua a derivar de verdade, mas conta as chamadas (S-2 do validador).
+  const hash = vi.fn(hashPassword);
   const service = createAuthService({
     db,
     rateLimiter,
     audit: createAuditLog(db, now),
-    mail,
+    mail: options.mail ?? mail,
     now,
     sleep,
     env: { APP_HOST: "localhost:3000", NODE_ENV: "test" },
+    hashPassword: hash,
   });
-  return { service, db, store, rateLimiter, mail, sleep, now, advance, users };
+  return { service, db, store, rateLimiter, mail, sleep, hash, now, advance, users };
 }
 
 function extractToken(text: string): string {
@@ -417,6 +422,19 @@ describe("requestPasswordReset", () => {
     expect(db.state.resetTokens).toHaveLength(0);
   });
 
+  it("S-3: Redis do transporte capturado sem resposta → MAIL_UNAVAILABLE dentro do limite", async () => {
+    const hanging = () => new Promise<never>(() => {});
+    const store = { lpush: vi.fn(hanging), expire: vi.fn(hanging) };
+    const mail = createCapturedTransport(store, () => new Date(START), 10);
+    const { service, db } = setup({ mail });
+    await expect(service.requestPasswordReset({ email: EMAIL })).rejects.toMatchObject({
+      code: "MAIL_UNAVAILABLE",
+      status: 503,
+    });
+    expect(store.lpush).toHaveBeenCalledTimes(1);
+    expect(db.state.resetTokens).toHaveLength(0);
+  });
+
   it("CA-30: envio falha → MAIL_UNAVAILABLE e nenhum token fica válido", async () => {
     const { service, db, mail } = setup();
     mail.failSend = true;
@@ -571,6 +589,49 @@ describe("resetPassword", () => {
       ctx.service.resetPassword({ token, newPassword: NEW_PASSWORD }),
     ).rejects.toMatchObject({ code: "INVALID_RESET_TOKEN" });
     expect(ctx.db.state.users[0].passwordHash).toBe(passwordHash);
+    expect(ctx.hash).not.toHaveBeenCalled();
+  });
+
+  it("S-2: token malformado, desconhecido, expirado ou curto demais não custa um scrypt", async () => {
+    const ctx = setup();
+    const { service, hash } = ctx;
+    const token = await requestToken(ctx);
+    const tampered = token.slice(0, -1) + (token.endsWith("A") ? "B" : "A");
+
+    await expect(
+      service.resetPassword({ token: "curto", newPassword: NEW_PASSWORD }),
+    ).rejects.toMatchObject({ code: "INVALID_RESET_TOKEN" });
+    await expect(
+      service.resetPassword({ token: tampered, newPassword: NEW_PASSWORD }),
+    ).rejects.toMatchObject({ code: "INVALID_RESET_TOKEN" });
+    await expect(service.resetPassword({ token, newPassword: "123456789" })).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
+    ctx.advance(HOUR + 1000);
+    await expect(service.resetPassword({ token, newPassword: NEW_PASSWORD })).rejects.toMatchObject(
+      { code: "INVALID_RESET_TOKEN" },
+    );
+
+    expect(hash).not.toHaveBeenCalled();
+  });
+
+  it("S-2: o scrypt corre uma vez, só depois de o token ter sido reclamado (usedAt)", async () => {
+    const ctx = setup();
+    const { service, db, hash } = ctx;
+    const token = await requestToken(ctx);
+    const claim = vi.spyOn(db.passwordResetToken, "updateMany");
+
+    await service.resetPassword({ token, newPassword: NEW_PASSWORD });
+    expect(hash).toHaveBeenCalledTimes(1);
+    expect(hash).toHaveBeenCalledWith(NEW_PASSWORD);
+    expect(claim).toHaveBeenCalledTimes(1);
+    expect(claim.mock.invocationCallOrder[0]).toBeLessThan(hash.mock.invocationCallOrder[0]);
+
+    // Segundo uso do mesmo link: recusado sem nova derivação.
+    await expect(
+      service.resetPassword({ token, newPassword: "outra-senha-789" }),
+    ).rejects.toMatchObject({ code: "INVALID_RESET_TOKEN" });
+    expect(hash).toHaveBeenCalledTimes(1);
   });
 
   it("banco fora → AUTH_UNAVAILABLE", async () => {

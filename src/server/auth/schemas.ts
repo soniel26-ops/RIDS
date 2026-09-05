@@ -3,6 +3,12 @@
  * textos exatos exibidos pela UI (briefing, seção 4.0).
  */
 import { z } from "zod";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_TOO_SHORT_MESSAGE,
+  RESET_TOKEN_PATTERN,
+} from "@/shared/auth-rules";
 
 export const emailField = z
   .string()
@@ -14,12 +20,12 @@ export const emailField = z
 export const passwordField = z
   .string()
   .min(1, "Informe a senha.")
-  .max(1024, "Senha demasiado longa.");
+  .max(PASSWORD_MAX_LENGTH, "Senha demasiado longa.");
 
 export const newPasswordField = z
   .string()
-  .min(10, "A senha deve ter pelo menos 10 caracteres.")
-  .max(1024, "Senha demasiado longa.");
+  .min(PASSWORD_MIN_LENGTH, PASSWORD_TOO_SHORT_MESSAGE)
+  .max(PASSWORD_MAX_LENGTH, "Senha demasiado longa.");
 
 export const loginSchema = z.object({
   email: emailField,
@@ -34,10 +40,8 @@ export const changePasswordSchema = z.object({
 
 export const forgotPasswordSchema = z.object({ email: emailField });
 
-export const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-
 export const resetPasswordSchema = z.object({
-  token: z.string().regex(TOKEN_PATTERN),
+  token: z.string().regex(RESET_TOKEN_PATTERN),
   newPassword: newPasswordField,
 });
 

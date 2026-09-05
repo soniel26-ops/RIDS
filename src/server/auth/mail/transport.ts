@@ -48,6 +48,7 @@ export function getMailTransport(): MailTransport {
     });
   } else {
     // Conexão obtida só no primeiro uso: quem nunca envia e-mail não abre Redis por isto.
+    // O timeout por comando (R-3) é aplicado dentro de createCapturedTransport.
     instance = createCapturedTransport({
       lpush: (key, value) => getRedisConnection().lpush(key, value),
       expire: (key, seconds) => getRedisConnection().expire(key, seconds),

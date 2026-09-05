@@ -6,6 +6,9 @@
  * Redis fora do ar ou lento → falha fechada: AUTH_UNAVAILABLE (briefing, R-3).
  */
 import { AuthError } from "./auth.errors";
+import { REDIS_COMMAND_TIMEOUT_MS, withTimeout } from "./with-timeout";
+
+export { TimeoutError, withTimeout } from "./with-timeout";
 
 /** Subconjunto do ioredis usado aqui; um Map em memória serve nos testes. */
 export interface RateLimitStore {
@@ -33,37 +36,13 @@ export interface RateLimitOptions {
 export const DEFAULT_RATE_LIMIT: RateLimitOptions = {
   limit: 5,
   windowSeconds: 900,
-  timeoutMs: 2_000,
+  timeoutMs: REDIS_COMMAND_TIMEOUT_MS,
 };
 
 export const RATE_LIMIT_KEYS = {
   loginFail: (emailNorm: string) => `auth:login-fail:${emailNorm}`,
   resetRequest: (emailNorm: string) => `auth:reset-req:${emailNorm}`,
 } as const;
-
-export class TimeoutError extends Error {
-  constructor(ms: number) {
-    super(`operação excedeu ${ms} ms`);
-    this.name = "TimeoutError";
-  }
-}
-
-/** Rejeita com TimeoutError se a promessa não resolver em `ms`. */
-export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new TimeoutError(ms)), ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
 
 export function createRateLimiter(
   store: RateLimitStore,

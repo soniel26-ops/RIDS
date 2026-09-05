@@ -14,7 +14,11 @@ import type { AuditLog } from "./audit";
 import { buildResetEmail, buildResetUrl } from "./mail/reset-email";
 import type { MailTransport } from "./mail/transport";
 import { normalizeEmail } from "./normalize";
-import { DUMMY_PASSWORD_HASH, hashPassword, verifyPassword } from "./password";
+import {
+  DUMMY_PASSWORD_HASH,
+  hashPassword as defaultHashPassword,
+  verifyPassword,
+} from "./password";
 import { RATE_LIMIT_KEYS, type RateLimiter } from "./rate-limit";
 import {
   createUserSchema,
@@ -105,6 +109,8 @@ export interface AuthServiceDeps {
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
   env?: NodeJS.ProcessEnv;
+  /** Derivação da senha (scrypt); substituível nos testes para provar quando é chamada. */
+  hashPassword?: (password: string) => Promise<string>;
 }
 
 export interface LoginResult {
@@ -140,6 +146,7 @@ export function createAuthService(deps: AuthServiceDeps) {
   const now = deps.now ?? (() => new Date());
   const sleep = deps.sleep ?? defaultSleep;
   const env = deps.env ?? process.env;
+  const hashPassword = deps.hashPassword ?? defaultHashPassword;
 
   async function findUserByEmail(emailNorm: string): Promise<AuthUserRow | null> {
     return db.user.findUnique({ where: { email: emailNorm } });
@@ -293,14 +300,17 @@ export function createAuthService(deps: AuthServiceDeps) {
       }
     },
 
-    /** 3.7: uso único ("o primeiro ganha"), revoga todas as sessões (CA-38). */
+    /**
+     * 3.7: uso único ("o primeiro ganha"), revoga todas as sessões (CA-38).
+     * O scrypt só corre depois de o token ter sido reclamado (usedAt marcado): um link
+     * inválido, expirado ou já usado não custa uma derivação de senha ao servidor.
+     */
     async resetPassword(input: { token: string; newPassword: string }): Promise<void> {
       if (!isTokenFormat(input.token)) throw new AuthError("INVALID_RESET_TOKEN");
       requireNewPassword(input.newPassword);
       const tokenHash = hashToken(input.token);
       let user: AuthUserRow;
       try {
-        const passwordHash = await hashPassword(input.newPassword);
         user = await db.$transaction(async (tx) => {
           const record = await tx.passwordResetToken.findUnique({
             where: { tokenHash },
@@ -315,6 +325,7 @@ export function createAuthService(deps: AuthServiceDeps) {
           });
           if (claimed.count !== 1) throw new AuthError("INVALID_RESET_TOKEN");
 
+          const passwordHash = await hashPassword(input.newPassword);
           await tx.user.update({ where: { id: record.userId }, data: { passwordHash } });
           await tx.session.deleteMany({ where: { userId: record.userId } });
           await tx.passwordResetToken.deleteMany({ where: { userId: record.userId } });

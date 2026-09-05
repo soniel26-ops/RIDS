@@ -2,8 +2,11 @@
  * Transporte "capturado" para desenvolvimento e aceitação: em vez de enviar, grava a
  * mensagem em Redis (LPUSH dev:outbox:<email normalizado>, EXPIRE 3600). Sem tabela.
  * Lido por GET /api/dev/outbox?to=<e-mail>.
+ * Cada comando Redis tem timeout (R-3): estourado, `send` rejeita (o serviço responde
+ * MAIL_UNAVAILABLE) e `readCapturedMessages` rejeita (a rota responde AUTH_UNAVAILABLE).
  */
 import { normalizeEmail } from "../normalize";
+import { REDIS_COMMAND_TIMEOUT_MS, withTimeout } from "../with-timeout";
 import type { MailMessage, MailTransport } from "./transport";
 
 export const OUTBOX_TTL_SECONDS = 3_600;
@@ -26,6 +29,7 @@ export function outboxKey(to: string): string {
 export function createCapturedTransport(
   store: CapturedMailStore,
   now: () => Date = () => new Date(),
+  timeoutMs: number = REDIS_COMMAND_TIMEOUT_MS,
 ): MailTransport {
   return {
     async send(message: MailMessage) {
@@ -36,8 +40,8 @@ export function createCapturedTransport(
         createdAt: now().toISOString(),
       };
       const key = outboxKey(message.to);
-      await store.lpush(key, JSON.stringify(captured));
-      await store.expire(key, OUTBOX_TTL_SECONDS);
+      await withTimeout(store.lpush(key, JSON.stringify(captured)), timeoutMs);
+      await withTimeout(store.expire(key, OUTBOX_TTL_SECONDS), timeoutMs);
     },
     async ping() {
       // Sem serviço externo: nada a verificar.
@@ -49,8 +53,9 @@ export function createCapturedTransport(
 export async function readCapturedMessages(
   reader: CapturedMailReader,
   to: string,
+  timeoutMs: number = REDIS_COMMAND_TIMEOUT_MS,
 ): Promise<CapturedMessage[]> {
-  const raw = await reader.lrange(outboxKey(to), 0, -1);
+  const raw = await withTimeout(reader.lrange(outboxKey(to), 0, -1), timeoutMs);
   const messages: CapturedMessage[] = [];
   for (const item of raw) {
     try {

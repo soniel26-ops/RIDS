@@ -21,17 +21,18 @@ Estado: backend completo, typecheck/lint/testes verdes, `next build` reconhece o
 ### Domínio de auth (`src/server/auth/**`)
 
 - (N) `auth.errors.ts` — `AuthError { code, status }`, `AUTH_ERROR_STATUS`, `isAuthError`, `EmailAlreadyInUseError` (só CLI).
-- (N) `schemas.ts` — esquemas Zod 4 da seção 4.0 + `createUserSchema`, `testUserSchema`, `TOKEN_PATTERN`, `firstIssueMessage`.
+- (N) `schemas.ts` — esquemas Zod 4 da seção 4.0 + `createUserSchema`, `testUserSchema`, `firstIssueMessage` (limites e padrão do token vêm de `src/shared/auth-rules.ts` desde a Correção 3).
 - (N) `normalize.ts` — `normalizeEmail`.
 - (N) `password.ts` — `hashPassword`, `verifyPassword`, `DUMMY_PASSWORD_HASH` (scrypt N=2^15, r=8, p=1, keylen 64, maxmem 64 MiB).
 - (N) `tokens.ts` — `generateOpaqueToken`, `hashToken`, `isTokenFormat`.
-- (N) `rate-limit.ts` — `RateLimitStore`, `RateLimiter`, `createRateLimiter`, `RATE_LIMIT_KEYS`, `withTimeout`, `TimeoutError`, `DEFAULT_RATE_LIMIT`.
+- (N) `rate-limit.ts` — `RateLimitStore`, `RateLimiter`, `createRateLimiter`, `RATE_LIMIT_KEYS`, `DEFAULT_RATE_LIMIT`; re-exporta `withTimeout`/`TimeoutError`.
+- (N) `with-timeout.ts` — `withTimeout`, `TimeoutError`, `REDIS_COMMAND_TIMEOUT_MS` (2 s); usado pelo limitador e pelo transporte capturado (Correção 3).
 - (N) `audit.ts` — `AuditRepository`, `AuditLog`, `createAuditLog(db, now)`; `record` nunca lança.
 - (N) `mail/transport.ts` — `MailMessage`, `MailTransport`, `resolveMailTransportName`, `getMailTransport`.
 - (N) `mail/resend-transport.ts` — `createResendTransport({ apiKey, from, fetchImpl? })` (fetch nativo, timeout 10 s).
-- (N) `mail/captured-transport.ts` — `createCapturedTransport(store, now?)`, `readCapturedMessages(reader, to)`, `outboxKey`, `OUTBOX_TTL_SECONDS`.
+- (N) `mail/captured-transport.ts` — `createCapturedTransport(store, now?, timeoutMs?)`, `readCapturedMessages(reader, to, timeoutMs?)`, `outboxKey`, `OUTBOX_TTL_SECONDS`; cada comando Redis com timeout de 2 s.
 - (N) `mail/reset-email.ts` — `buildResetUrl(token, env?)`, `buildResetEmail({ to, resetUrl })`, `RESET_EMAIL_SUBJECT`.
-- (N) `auth.service.ts` — `AuthRepository`/`AuthModels` (subconjunto do Prisma), `createAuthService(deps)` com `login`, `logout`, `resolveSession`, `changePassword`, `requestPasswordReset`, `resetPassword`, `createUser`, `upsertTestUser`; constantes `SESSION_TTL_MS`, `RESET_TOKEN_TTL_MS`, `FORGOT_MIN_RESPONSE_MS`; `type AuthService`.
+- (N) `auth.service.ts` — `AuthRepository`/`AuthModels` (subconjunto do Prisma), `createAuthService(deps)` (`deps.hashPassword` opcional, default scrypt real) com `login`, `logout`, `resolveSession`, `changePassword`, `requestPasswordReset`, `resetPassword`, `createUser`, `upsertTestUser`; constantes `SESSION_TTL_MS`, `RESET_TOKEN_TTL_MS`, `FORGOT_MIN_RESPONSE_MS`; `type AuthService`.
 - (N) `auth.deps.ts` — `getAuthService()` (singleton; Redis e transporte de e-mail resolvidos preguiçosamente no primeiro comando).
 - (N) `http.ts` — `SESSION_COOKIE`, `setSessionCookie`, `clearSessionCookie`, `isFormRequest`, `readAuthBody`, `respondAuth`, `errorOutcome`, `withQuery`, `apiErrorResponse`, `validationError`, `toAuthError`, `assertSameOrigin`.
 - (N) `session-guard.ts` — `getCurrentUser`, `requirePageUser`, `authenticateApiRequest` (ver seção 2.9).
@@ -49,6 +50,7 @@ Estado: backend completo, typecheck/lint/testes verdes, `next build` reconhece o
 
 - (A) `src/shared/types.ts` — acréscimos exatos da seção 9 do briefing, com `AUTH_ERROR_MESSAGES` preenchido.
 - (N) `src/shared/safe-path.ts` — `toSafeInternalPath(value)`; (N) `src/shared/safe-path.test.ts`.
+- (N) `src/shared/auth-rules.ts` — `RESET_TOKEN_PATTERN`, `PASSWORD_MIN_LENGTH`, `PASSWORD_MAX_LENGTH`, `PASSWORD_TOO_SHORT_MESSAGE`, `AUTH_ERROR_CODES` (Correção 3); (N) `src/shared/auth-rules.test.ts`.
 
 ---
 
@@ -194,7 +196,7 @@ Novos helpers criados (justificativa): `withTimeout` (não existia; necessário 
 11. **`SESSION_COOKIE` duplicado em `src/proxy.ts`** — a doc do Next pede que o proxy não dependa de módulos compartilhados do servidor; o proxy importa só `@/shared/types` e `next/server`. O teste do proxy garante o nome.
 12. `AuthError` para `VALIDATION_ERROR` sem mensagem usa `Dados inválidos.` como fallback (nunca atingido pelas rotas, que passam sempre a mensagem Zod).
 
-Nada foi feito fora do escopo listado na seção 8 do briefing.
+Fora da lista de arquivos da seção 8 do briefing, mas dentro das pastas do backend, foram criados dois arquivos: `src/server/auth/testing/fakes.ts` (dublês em memória partilhados pelos testes; justificado na seção 3) e `src/server/auth/mail/resend-transport.test.ts` (teste unitário do transporte Resend). Nenhum outro arquivo foi criado ou editado fora da seção 8. (Correção 3 acrescentou `src/shared/auth-rules.ts`, `src/shared/auth-rules.test.ts` e `src/server/auth/with-timeout.ts`; ver a seção correspondente.)
 
 ---
 
@@ -297,3 +299,63 @@ $ curl -i 'http://127.0.0.1:3000//evil.test/x'                       → 308 · 
 ```
 
 **Regra que teria ajudado.** "`src/proxy.ts` redireciona sempre com `NextResponse.redirect(new URL(caminho, request.url))`; nunca com `Location` relativo (o adapter do Next lança `Invalid URL`) nem com o cabeçalho `Host`. O Next relativiza o `Location` sozinho. Em rotas de API é o contrário: `Location` relativo." E: "Toda correção a um redirecionamento é confirmada com `curl -i` contra o `next dev` antes de fechar; o Vitest não passa pelo adapter do Next."
+
+---
+
+## Correção 3 (achados do validador S-1, S-2, S-3, S-6)
+
+**Data:** 2026-09-05 · **Origem:** `07-validacao.md`, achados secundários aprovados pelo dono para tratamento antes do PR.
+
+### S-2 · `resetPassword` só deriva a senha depois de reclamar o token
+
+- `src/server/auth/auth.service.ts` — `hashPassword(newPassword)` saiu de antes da transação e passou para dentro dela, imediatamente **depois** de `updateMany({ where: { id, usedAt: null } })` devolver `count === 1`. Token malformado, desconhecido, expirado, já usado ou perdido na corrida entre dois navegadores termina antes de qualquer scrypt. `AuthServiceDeps` ganhou `hashPassword?: (password: string) => Promise<string>` (default: o scrypt real de `password.ts`), usado por `resetPassword`, `changePassword`, `createUser` e `upsertTestUser`. Contrato público (métodos, códigos, mensagens) inalterado.
+- `src/server/auth/auth.service.test.ts` — `setup()` injeta `hash = vi.fn(hashPassword)` e aceita `mail` opcional. Novos testes: "token malformado, desconhecido, expirado ou curto demais não custa um scrypt" (`hash` nunca chamado) e "o scrypt corre uma vez, só depois de o token ter sido reclamado" (ordem `updateMany` → `hash` via `invocationCallOrder`; segundo uso não deriva de novo). O teste dos dois navegadores (`count: 0`) passou a exigir `hash` não chamado.
+
+### S-3 · Timeout de 2 s em todos os comandos Redis fora do limitador
+
+- `src/server/auth/with-timeout.ts` (novo) — `withTimeout`, `TimeoutError` e `REDIS_COMMAND_TIMEOUT_MS = 2_000`, movidos de `rate-limit.ts` para um módulo sem dependências (o transporte de e-mail não deveria importar o limitador). `rate-limit.ts` re-exporta `withTimeout`/`TimeoutError` e usa a constante em `DEFAULT_RATE_LIMIT.timeoutMs`; `rate-limit.test.ts` continua a passar sem alteração.
+- `src/server/auth/mail/captured-transport.ts` — `createCapturedTransport(store, now?, timeoutMs = 2_000)` envolve `lpush` e `expire` em `withTimeout`; `readCapturedMessages(reader, to, timeoutMs = 2_000)` envolve `lrange`. A conversão de erro segue o caminho já existente: em `requestPasswordReset` o serviço transforma qualquer falha de `mail.send` em **`MAIL_UNAVAILABLE` (503)**; em `GET /api/dev/outbox` o `toAuthError` da rota transforma o `TimeoutError` em **`AUTH_UNAVAILABLE` (503)**. Só a mensagem do erro vai para o log.
+- `src/server/auth/mail/transport.ts` — sem alteração funcional (só um comentário): as funções `lpush`/`expire` passadas a `createCapturedTransport` ficam automaticamente sob o timeout. O pedido falava em envolver ali; ficou no transporte para ser testável com dublês.
+- `src/server/auth/mail/captured-transport.test.ts` — testes: `LPUSH` pendurado → `TimeoutError` e `EXPIRE` nunca chamado; `EXPIRE` pendurado → `TimeoutError`; erro real do Redis passa intacto; limite por defeito é exatamente 2 s (fake timers: a 1 999 ms ainda pendente, a 2 000 ms rejeita); `LRANGE` pendurado → `TimeoutError`. Em `auth.service.test.ts`: transporte capturado com Redis pendurado → `requestPasswordReset` rejeita `MAIL_UNAVAILABLE` (503) sem criar token.
+
+### S-1 · Constantes partilhadas em `src/shared/auth-rules.ts` (alteração em `src/shared/**`, declarada aqui como desvio)
+
+Novo arquivo `src/shared/auth-rules.ts`. Exportações exatas, para o `frontend-engineer` consumir e apagar as duplicatas em `src/components/auth/authQuery.ts` e `src/components/auth/passwordRules.ts`:
+
+| Exportação                   | Tipo                       | Valor                                                                                   |
+| ---------------------------- | -------------------------- | --------------------------------------------------------------------------------------- |
+| `RESET_TOKEN_PATTERN`        | `RegExp`                   | `/^[A-Za-z0-9_-]{43}$/`                                                                 |
+| `PASSWORD_MIN_LENGTH`        | `number`                   | `10`                                                                                    |
+| `PASSWORD_MAX_LENGTH`        | `number`                   | `1024`                                                                                  |
+| `PASSWORD_TOO_SHORT_MESSAGE` | `string`                   | `"A senha deve ter pelo menos 10 caracteres."`                                          |
+| `AUTH_ERROR_CODES`           | `readonly AuthErrorCode[]` | `["VALIDATION_ERROR", ...Object.keys(AUTH_ERROR_MESSAGES)]` (11 códigos, sem repetição) |
+
+O módulo importa só `AUTH_ERROR_MESSAGES` e `AuthErrorCode` de `./types`; não tem dependências de servidor e pode ser importado por componentes cliente.
+
+- `src/server/auth/schemas.ts` — `passwordField`/`newPasswordField` usam `PASSWORD_MIN_LENGTH`, `PASSWORD_MAX_LENGTH`, `PASSWORD_TOO_SHORT_MESSAGE`; `resetPasswordSchema` usa `RESET_TOKEN_PATTERN`. **`TOKEN_PATTERN` deixou de ser exportado** (só `tokens.ts` o usava). Mensagens e comportamento idênticos (`schemas.test.ts` inalterado e verde).
+- `src/server/auth/tokens.ts` — `isTokenFormat` usa `RESET_TOKEN_PATTERN` de `@/shared/auth-rules`; deixa de depender de `schemas.ts`.
+- `src/shared/auth-rules.test.ts` (novo) — padrão aceita 43 base64url e recusa 42/44/`+`/`=`; mensagem contém o mínimo; `AUTH_ERROR_CODES` contém `VALIDATION_ERROR` e todas as chaves de `AUTH_ERROR_MESSAGES`, sem repetição.
+- **Não tocado:** `src/components/**`, `src/hooks/**` (o frontend consome a seguir).
+
+### S-6 · Resumo inexato
+
+Seção 4 corrigida (ver acima): `src/server/auth/testing/fakes.ts` e `src/server/auth/mail/resend-transport.test.ts` estão dentro das pastas do backend mas não constavam da seção 8 do briefing. Seção 1 atualizada para refletir `with-timeout.ts`, `auth-rules.ts` e as assinaturas novas.
+
+**Contrato da API.** Sem mudança: mesmos endpoints, códigos, status e mensagens. Efeitos observáveis apenas em falha de infraestrutura fora de produção (Redis pendurado agora responde 503 em vez de ficar sem resposta) e em custo de CPU (`reset-password` com token inválido já não faz scrypt).
+
+**Verificação.**
+
+```
+$ npm run format      → Prettier OK
+$ npm run typecheck   → tsc --noEmit   OK (sem erros)
+$ npm run lint        → eslint .       OK (sem avisos)
+$ npm test            → vitest run
+  Test Files  23 passed (23)   (antes: 22)
+  Tests       207 passed (207) (antes: 196; +3 auth-rules, +5 captured-transport, +3 auth.service)
+```
+
+**Regras que teriam ajudado.**
+
+1. "Todo comando Redis emitido fora do BullMQ passa por `withTimeout(…, REDIS_COMMAND_TIMEOUT_MS)` de `src/server/auth/with-timeout.ts`; a conexão de `queue.ts` usa `maxRetriesPerRequest: null` e nunca falha sozinha." — teria evitado o S-3 na primeira execução.
+2. "Em rotas públicas sem limite de tentativas, o trabalho caro (scrypt, envio de e-mail) só corre depois da validação barata (formato, existência, `usedAt`) ter passado." — teria evitado o S-2.
+3. "Constantes que a UI precisa de repetir (padrões, limites, mensagens de validação, listas de códigos) nascem em `src/shared/`, não em `src/server/**`." — teria evitado o S-1.
