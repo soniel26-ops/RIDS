@@ -265,3 +265,68 @@ Os mesmos da §5 (transporte de e-mail `captured`, `POST /api/dev/test-user`, le
 
 1. A recomendação da rodada 1 mantém-se: em CI, correr os testes de aceitação contra o PostgreSQL do `docker compose` (R-15 do briefing), não contra o daemon `prisma dev`. Com 2 workers, a probabilidade de um `08P01` numa execução de 64 testes continua real (1 em 1 nesta rodada; 0 em 1 na rodada 1 final); com `--workers=1` não ocorreu em nenhuma execução.
 2. As "regras que teriam ajudado" propostas pelo `backend-engineer` no fim da Correção 2 (rotas de API → `Location` relativo; `src/proxy.ts` → `NextResponse.redirect(new URL(caminho, request.url))`; confirmar redirecionamentos com `curl -i` contra o `next dev`) são consistentes com o que se observou de fora nas duas rodadas.
+
+---
+
+## Rodada 3 — reexecução após a Correção 3 (backend) e a Correção 1 (frontend)
+
+**Data:** 2026-09-05 · **Agente:** `test-verifier` · **Base:** commits `584fc58` (backend, Correção 3: `hashPassword` só depois de `updateMany` reclamar o token em `resetPassword`; `withTimeout` de 2 s em `lpush`/`expire`/`lrange` do transporte capturado; constantes partilhadas em `src/shared/auth-rules.ts`) e `700edbf` (frontend, Correção 1: `authQuery.ts` e `passwordRules.ts` consomem `src/shared/auth-rules.ts`). Nenhuma mudança de contrato, códigos, status ou textos declarada pelos engenheiros; por isso **nenhum arquivo de teste foi alterado** (`tests/e2e/**` idêntico à rodada 2), nem `playwright.config.ts`, `.env` ou código de produção. Nenhum teste pulado ou marcado como `skip`.
+
+### R3.1 Estado do ambiente e reposição da infraestrutura
+
+Ao retomar a sessão, **nem o Redis (`localhost:6379`) nem o daemon `prisma dev` (`localhost:51214`) estavam no ar** (`ECONNREFUSED` em ambos; nenhum processo `redis-server`/`daemon.cjs` ativo; Docker indisponível). Antes de executar qualquer teste:
+
+- `redis-server --port 6379 --bind 127.0.0.1 --save "" --appendonly no --daemonize yes` (dados e log no scratchpad da sessão; o produto só usa o Redis para limitador de tentativas e caixa de e-mail capturada, ambos efémeros) → `PING` = `PONG`.
+- `npx prisma dev start rids` — o servidor guardado `rids` foi reiniciado com os dados intactos: `prisma migrate status` → "Database schema is up to date!" (2 migrações: `20260904000000_init`, `20260904120000_auth_users_sessions_audit`); tabelas `AuthAuditLog, PasswordResetToken, Session, Store, User, WebhookEvent`; lojas `sonielparis.fr`, `sonielsupply.com`. Sem `migrate` nem `seed` adicionais.
+- O orquestrador confirmou a reposição a meio da rodada. **Nenhuma execução de teste ocorreu com a infraestrutura em baixo**, logo nenhum resultado foi descartado nem reexecutado por `ECONNREFUSED`/`503`.
+- Atalhos simbólicos do navegador em `/opt/pw-browsers` (`chromium-1234`, `chromium_headless_shell-1234` → build `1194`) continuavam presentes; nada recriado, sem `playwright install`.
+- `next dev` não estava no ar. Foi iniciado com o **mesmo comando do `webServer`** (`npm run dev -- --hostname 127.0.0.1 --port 3000`, `MAIL_TRANSPORT=captured`) com a saída gravada em log no scratchpad, para que uma eventual falha pudesse ser atribuída ao servidor como nas rodadas 1 e 2; o Playwright reutilizou-o (`reuseExistingServer`, fora de CI). Configuração inalterada.
+
+### R3.2 Comandos executados e resultado real
+
+**`npm test`** (Vitest):
+
+```
+ Test Files  23 passed (23)
+      Tests  207 passed (207)
+   Duration  12.48s
+```
+
+(196 na rodada 2 → 207: +3 `src/shared/auth-rules.test.ts`, +5 `captured-transport.test.ts`, +3 `auth.service.test.ts`, conforme `04-resumo-backend.md`; os testes de componente do frontend passaram sem alteração após a Correção 1.)
+
+**`npm run test:e2e -- --workers=1`** (Playwright, regra combinada por causa do `prisma dev`/PGlite com conexões concorrentes):
+
+```
+Running 64 tests using 1 worker
+  ✓   1 tests/e2e/auth-api.spec.ts:17:5 › CA-4: com sessão válida, /api/stores devolve as lojas normalmente (2.0s)
+  ...
+  ✓  39 tests/e2e/auth-nojs.spec.ts:19:5 › caso extremo (sem JS): login válido entra e mostra o painel (698ms)
+  ✓  53 tests/e2e/auth-reset.spec.ts:78:5 › CA-28: e-mail desconhecido recebe a mesma frase neutra, em tempo equivalente, sem e-mail (3.8s)
+  ✓  54 tests/e2e/auth-reset.spec.ts:111:5 › CA-29: link adulterado é recusado com a mensagem; a senha e as sessões não mudam (2.4s)
+  ✓  55 tests/e2e/auth-reset.spec.ts:151:5 › CA-34: o link só pode ser usado uma vez (o segundo uso é recusado) (1.5s)
+  ✓  57 tests/e2e/auth-reset.spec.ts:193:5 › CA-36: o 6.º pedido de link em 15 minutos é recusado, para e-mail existente e inexistente (9.1s)
+  ✓  59 tests/e2e/auth-reset.spec.ts:269:5 › caso extremo: link aberto em dois navegadores — o primeiro a concluir ganha (3.1s)
+  ✓  61 tests/e2e/auth-reset.spec.ts:323:5 › caso extremo: redefinir pelo link zera a contagem de tentativas de login (2.1s)
+  ✓  64 tests/e2e/health.spec.ts:3:5 › CA-0: o serviço responde em /api/health (19ms)
+  64 passed (1.8m)
+```
+
+Log do servidor durante toda a execução: **0 ocorrências de `08P01`, 0 respostas `503`**, nenhuma linha de erro. (Na rodada 2 com 1 worker também não houve `08P01`; a execução com 2 workers não foi repetida nesta rodada, por indicação do orquestrador.)
+
+### R3.3 O que a rodada 3 comprova sobre as correções
+
+As correções não alteram o contrato, portanto o que se verifica de fora é a **ausência de regressão** nos caminhos tocados:
+
+- `resetPassword` com hash depois do token (S-2): CA-25, CA-29 (adulterado, truncado, sem token, gigante), CA-34, CA-35, CA-38, "link em dois navegadores", "link pedido e senha trocada entretanto", "nova senha com 9 caracteres pelo link" e CA-42 (auditoria) — todos verdes, mesmas mensagens e códigos.
+- Timeout de 2 s no transporte capturado (S-3): CA-24, CA-28 (tempos ≥ 750 ms e diferença < 1,5 s continuam dentro do esperado), CA-35, CA-36 e `GET /api/dev/outbox` em todos os testes que leem e-mail — verdes; o caminho de timeout em si (Redis pendurado → 503 `MAIL_UNAVAILABLE`/`AUTH_UNAVAILABLE`) não é provocável de fora sem parar o Redis do ambiente e fica coberto pelos unitários `captured-transport.test.ts` e `auth.service.test.ts` (verdes no `npm test`), tal como CA-30 na §4.
+- Constantes partilhadas (S-1, backend e frontend): CA-9, CA-20, CA-27 (mínimo de 10 na tela e na API, mesma frase `A senha deve ter pelo menos 10 caracteres.`), CA-29 e `?erro=` nos casos sem JS (`parseAuthErrorCode` com a lista derivada de `AUTH_ERROR_MESSAGES`) — verdes, textos idênticos.
+
+### R3.4 Estado final
+
+- **Critérios aprovados:** todos os da tabela da §2 (CA-1 a CA-12, CA-14, CA-16 a CA-29, CA-31 a CA-43) e todos os casos extremos listados em §2 e R2.3, incluindo os 4 casos "sem JavaScript" — **64/64 verdes** com 1 worker.
+- **Critérios que falharam:** **nenhum.** Nada a devolver ao `backend-engineer` nem ao `frontend-engineer`.
+- **Critérios não cobertos de fora:** tabela da §4 **inalterada** (CA-13, CA-15, CA-18/CA-36 libertação após 15 min, CA-30, CA-34 janela de 1 hora, fronteira de expiração/fuso, duplicidade de conta, duplo envio, CA-11 variante "lista a carregar", auditoria quando o registro falha, CA-14 CLI). Acrescenta-se, pelo mesmo motivo de CA-30, o novo caminho de timeout do Redis no transporte capturado (S-3), coberto pelos unitários referidos em R3.3.
+- **Mocks:** os mesmos da §5 (transporte `captured`, `POST /api/dev/test-user`, leitura SQL de `AuthAuditLog`, atalhos do navegador em `/opt/pw-browsers`). Nenhum novo.
+- **Ambiente:** Redis e `prisma dev` repostos no início da rodada (R3.1); recomendação das rodadas 1 e 2 mantém-se — em CI, PostgreSQL do `docker compose` e não o daemon `prisma dev`.
+
+Sem commit.
