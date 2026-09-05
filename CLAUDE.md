@@ -124,6 +124,40 @@ Regra contra a deriva: um erro pequeno é corrigido na hora. Uma suposição
 arquitetônica errada significa descartar a sessão e recomeçar com a suposição
 correta já incorporada. Não remende modelos mentais errados.
 
+## Regras aprendidas (funcionalidade login-painel, 2026-09-04)
+
+- Rotas de API obtêm o serviço por uma fábrica substituível (`getXService()` em
+  `x.deps.ts`), nunca importando `@/server/db` diretamente. Assim as rotas ficam
+  testáveis em Vitest.
+- Dublês de teste que não são `*.test.*` vivem em `src/<camada>/testing/`.
+- Constantes usadas pela API e pela UI (regex, limites, textos de aviso) vivem em
+  `src/shared/`, nunca duplicadas em backend e frontend.
+- `src/proxy.ts` só importa `next/server` e `src/shared/**`. Redireciona com
+  `NextResponse.redirect(new URL(caminho, request.url))`: o Next relativiza o
+  `Location` sozinho; um `Location` relativo no proxy dá erro 500.
+- Em rotas de API é o contrário: `3xx` com `Location` relativo (caminho interno).
+  Nunca construa a URL a partir de `request.url`: no Next 16 ela carrega o hostname
+  configurado do servidor, não o `Host` do pedido.
+- Toda correção a redirecionamento ou cookie é confirmada com `curl -i` contra o
+  `next dev` antes de fechar; o Vitest não passa pelo adapter do Next.
+- Sem banco na sessão, a migração é gerada com
+  `prisma migrate diff --from-schema <anterior> --to-schema prisma/schema.prisma --script`
+  e o resumo diz que ainda não foi aplicada.
+- Páginas leem `await props.searchParams` e passam props a componentes cliente;
+  formulários não usam `useSearchParams`/`useRouter`, para serem testáveis em jsdom.
+- Links entre páginas usam `<Link>`; só navegações que exigem recarga completa
+  (login, logout, redefinição) usam `window.location`, com `eslint-disable` justificado.
+- O lint do React Compiler está ativo: sem `setState` síncrono em efeitos; a
+  hidratação detecta-se com `useSyncExternalStore`.
+- Em testes de componente, `window.location` substitui-se com `vi.stubGlobal("location", …)`;
+  `vi.mock` parcial não intercepta chamadas internas ao próprio módulo. Com `vi.mock`,
+  crie o spy como `vi.fn(implReal)`: `vi.restoreAllMocks()` apaga implementações
+  definidas depois.
+- Testes que usam `getByRole("alert")` excluem `#__next-route-announcer__`.
+- Títulos de página não repetem exatamente o texto de um botão ou link da mesma tela.
+- Testes de aceitação em CI correm contra o PostgreSQL do `docker compose`; o
+  `prisma dev` (PGlite) falha com conexões concorrentes (`08P01`).
+
 ## Hábito de manutenção
 
 Sempre que a IA cometer um erro que o surpreenda, pergunte: uma regra neste
